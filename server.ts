@@ -16,10 +16,138 @@ if (fs.existsSync(".env.local")) {
 import { registerMcpServer } from "./mcpServer";
 
 const app = express();
+
+// Enable CORS for OpenAI Custom GPTs and external clients
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: "15mb" }));
 registerMcpServer(app);
 
 const PORT = 3000;
+
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({ status: "healthy", timestamp: Date.now() });
+});
+
+// Dynamic OpenAPI Specification for ChatGPT Custom GPT Actions
+app.get("/openapi.json", (req, res) => {
+  const host = req.get("host") || "numtemacarrousel.coolify.dallico.com";
+  const protocol = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const serverUrl = `${protocol}://${host}`;
+
+  res.json({
+    openapi: "3.1.0",
+    info: {
+      title: "Numtema Carousel Studio API",
+      description: "API de création, retouche et consultation de carrousels pour réseaux sociaux.",
+      version: "1.0.0"
+    },
+    servers: [{ url: serverUrl }],
+    paths: {
+      "/api/projects": {
+        get: {
+          summary: "Récupérer la liste des carrousels sauvegardés",
+          operationId: "getProjects",
+          responses: { "200": { description: "Liste des carrousels" } }
+        },
+        post: {
+          summary: "Sauvegarder ou mettre à jour la liste des projets",
+          operationId: "saveProjects",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "array", items: { type: "object" } }
+              }
+            }
+          },
+          responses: { "200": { description: "Sauvegardé avec succès" } }
+        }
+      },
+      "/api/generate-carousel": {
+        post: {
+          summary: "Générer un carrousel complet à partir d'un sujet",
+          operationId: "generateCarousel",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    topic: { type: "string", description: "Le sujet ou plan du carrousel" },
+                    count: { type: "integer", default: 6, description: "Nombre de slides" },
+                    intent: { 
+                      type: "string", 
+                      enum: ["educational", "storytelling", "checklist", "promotion", "trends"],
+                      description: "Objectif éditorial"
+                    }
+                  },
+                  required: ["topic"]
+                }
+              }
+            }
+          },
+          responses: { "200": { description: "Carrousel généré" } }
+        }
+      },
+      "/api/enhance-visual-prompt": {
+        post: {
+          summary: "Générer un prompt artistique contextualisé pour un slide",
+          operationId: "enhanceVisualPrompt",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    headline: { type: "string" },
+                    body: { type: "string" },
+                    topic: { type: "string" }
+                  },
+                  required: ["headline", "body"]
+                }
+              }
+            }
+          },
+          responses: { "200": { description: "Prompt visuel" } }
+        }
+      },
+      "/api/edit-slide": {
+        post: {
+          summary: "Retoucher un slide spécifique",
+          operationId: "editSlide",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    slide: { type: "object" },
+                    instruction: { type: "string", description: "Consigne d'amélioration" }
+                  },
+                  required: ["slide", "instruction"]
+                }
+              }
+            }
+          },
+          responses: { "200": { description: "Slide retouché" } }
+        }
+      }
+    }
+  });
+});
 
 // Gemini client initialization helper
 const getAI = () => {
