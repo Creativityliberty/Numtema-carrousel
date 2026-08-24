@@ -440,15 +440,18 @@ app.post("/api/generate-image", async (req, res) => {
     }
 
     if (!imageUri) {
-      // Robust beautiful artistic placeholder fallback
-      imageUri = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop";
+      const cleanPrompt = encodeURIComponent(`${prompt}, ${vibe || "modern aesthetic background, minimalist, high resolution"}`);
+      const [w, h] = aspectRatio === "4:5" ? [1080, 1350] : [1080, 1080];
+      imageUri = `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${w}&height=${h}&nologo=true`;
     }
 
     res.json({ imageUri });
   } catch (error: any) {
-    console.error("AI Slide Image draw failed:", error);
-    // Graceful fallback response on error so the application never hangs
-    res.json({ imageUri: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop" });
+    console.warn("AI Slide Image fallback active:", error?.message || error);
+    const cleanPrompt = encodeURIComponent(`${req.body.prompt || "modern clean abstract digital background"}, ${req.body.vibe || "8k, high quality"}`);
+    const [w, h] = req.body.aspectRatio === "4:5" ? [1080, 1350] : [1080, 1080];
+    const imageUri = `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${w}&height=${h}&nologo=true`;
+    res.json({ imageUri });
   }
 });
 
