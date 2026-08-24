@@ -333,6 +333,43 @@ export default function App() {
     }
   };
 
+  const [isGeneratingSingleImage, setIsGeneratingSingleImage] = useState(false);
+
+  const handleGenerateSingleImage = async () => {
+    if (!currentProject) return;
+    const slide = currentProject.config.slides[currentIdx];
+    if (!slide.visualPrompt?.trim()) {
+      alert("Veuillez saisir une description visuelle (prompt) ou cliquer sur ✨ Générer.");
+      return;
+    }
+    setIsGeneratingSingleImage(true);
+    try {
+      const uri = await generateSlideImage(
+        slide.visualPrompt,
+        currentProject.config.aspectRatio,
+        currentProject.config.customSpec?.vibe
+      );
+      updateSlide({ imageUri: uri });
+    } catch (e: any) {
+      alert("Erreur de génération d'image : " + (e?.message || "Erreur"));
+    } finally {
+      setIsGeneratingSingleImage(false);
+    }
+  };
+
+  const handleUploadSlideImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const uri = event.target?.result as string;
+      if (uri) {
+        updateSlide({ imageUri: uri });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleEditSlideWithAI = async () => {
     if (!currentProject || !slideInstruction.trim()) return;
     setIsEditingSlide(true);
@@ -545,8 +582,37 @@ export default function App() {
                           rows={2} 
                           value={currentProject.config.slides[currentIdx].visualPrompt || ""} 
                           onChange={e => updateSlide({ visualPrompt: e.target.value })}
-                          placeholder="Ex: Forêt brumeuse au coucher du soleil, tons chauds... ou cliquez ✨ Générer"
+                          placeholder="Décrivez l'image souhaitée ou cliquez ✨ Générer..."
                         />
+                        
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            onClick={handleGenerateSingleImage}
+                            disabled={isGeneratingSingleImage}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                          >
+                            {isGeneratingSingleImage ? (
+                              <><Loader2 size={12} className="animate-spin" /> Génération image...</>
+                            ) : (
+                              <><ImageIcon size={12} /> {currentProject.config.slides[currentIdx].imageUri ? "Régénérer image" : "Générer image"}</>
+                            )}
+                          </button>
+
+                          <label className={`p-2 rounded-xl border text-[10px] font-bold cursor-pointer transition-all flex items-center justify-center ${currentProject.config.theme === 'light' ? 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700' : 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300'}`} title="Importer votre propre image">
+                            <Upload size={13} />
+                            <input type="file" accept="image/*" onChange={handleUploadSlideImage} className="hidden" />
+                          </label>
+
+                          {currentProject.config.slides[currentIdx].imageUri && (
+                            <button
+                              onClick={() => updateSlide({ imageUri: undefined })}
+                              className="p-2 rounded-xl border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold transition-all cursor-pointer"
+                              title="Supprimer l'image"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
                      </div>
                      <textarea 
                        className={`w-full ${currentProject.config.theme === 'light' ? 'bg-slate-100 border-slate-200 text-slate-900' : 'bg-white/5 border-white/10 text-white'} border rounded-2xl p-4 text-xs font-bold focus:ring-1 focus:ring-teal-500 outline-none`}
