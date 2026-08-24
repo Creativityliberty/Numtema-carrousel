@@ -16,6 +16,9 @@ RUN npm run build
 # ── Production stage ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
+# Install wget for healthcheck
+RUN apk add --no-cache wget
+
 WORKDIR /app
 
 # Only copy built artefacts and runtime deps
