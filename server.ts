@@ -48,19 +48,19 @@ app.get("/openapi.json", (req, res) => {
     openapi: "3.1.0",
     info: {
       title: "Numtema Carousel Studio API",
-      description: "API de création, retouche et consultation de carrousels pour réseaux sociaux.",
-      version: "1.0.0"
+      description: "API complète de création, batch generation, retouche et consultation de carrousels pour réseaux sociaux.",
+      version: "1.2.0"
     },
     servers: [{ url: serverUrl }],
     paths: {
       "/api/projects": {
         get: {
-          summary: "Récupérer la liste des carrousels sauvegardés",
+          summary: "Récupérer tous les carrousels sauvegardés",
           operationId: "getProjects",
           responses: { "200": { description: "Liste des carrousels" } }
         },
         post: {
-          summary: "Sauvegarder ou mettre à jour la liste des projets",
+          summary: "Sauvegarder ou mettre à jour la liste complète des projets",
           operationId: "saveProjects",
           requestBody: {
             required: true,
@@ -73,10 +73,43 @@ app.get("/openapi.json", (req, res) => {
           responses: { "200": { description: "Sauvegardé avec succès" } }
         }
       },
+      "/api/projects/{id}": {
+        get: {
+          summary: "Récupérer un carrousel spécifique par son identifiant",
+          operationId: "getProjectById",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "L'identifiant du projet (ex: project-178759...)"
+            }
+          ],
+          responses: {
+            "200": { description: "Détails complets du carrousel" },
+            "404": { description: "Projet non trouvé" }
+          }
+        },
+        delete: {
+          summary: "Supprimer un carrousel existant par son identifiant",
+          operationId: "deleteProject",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "L'identifiant du projet à supprimer"
+            }
+          ],
+          responses: { "200": { description: "Projet supprimé" } }
+        }
+      },
       "/api/generate-carousel": {
         post: {
           summary: "Générer un carrousel complet et l'enregistrer dans le Studio Numtema",
-          description: "Génère un carrousel complet avec des slides percutants et des prompts visuels d'images sur-mesure, l'enregistre immédiatement dans la base de données PostgreSQL et renvoie la liste des slides, le lien direct d'édition (editUrl) et le lien direct de téléchargement/export ZIP (downloadUrl).",
+          description: "Génère un carrousel sur-mesure avec slides percutants, direction artistique d'image, auto-sauvegarde dans PostgreSQL, et renvoie la liste des slides avec les liens directs d'édition (editUrl) et de téléchargement ZIP (downloadUrl).",
           operationId: "generateCarousel",
           requestBody: {
             required: true,
@@ -85,16 +118,41 @@ app.get("/openapi.json", (req, res) => {
                 schema: {
                   type: "object",
                   properties: {
-                    topic: { type: "string", description: "Le sujet ou plan du carrousel" },
-                    count: { type: "integer", default: 6, description: "Nombre de slides" },
+                    topic: { type: "string", description: "Le sujet, titre ou plan détaillé du carrousel" },
+                    count: { type: "integer", default: 6, description: "Nombre de slides à générer (ex: 5, 6, 7)" },
                     intent: { 
                       type: "string", 
                       enum: ["educational", "storytelling", "checklist", "promotion", "trends"],
-                      description: "Objectif éditorial"
+                      description: "Objectif éditorial du contenu"
+                    },
+                    targetAudience: {
+                      type: "string",
+                      description: "Public cible (ex: 'Fondateurs B2B', 'Coachs & Consultants', 'E-commerce', 'Freelances tech')"
                     },
                     imageStyle: {
                       type: "string",
-                      description: "Style visuel ou direction artistique des images d'arrière-plan (ex: 'Rendu 3D minimaliste émeraude', 'Photographie studio cinématique', 'Abstrait tech futuristic')"
+                      description: "Direction artistique et style des images (ex: 'Rendu 3D émeraude minimaliste', 'Photographie studio cinématique', 'Abstrait tech futuristic')"
+                    },
+                    accentColor: {
+                      type: "string",
+                      description: "Couleur d'accent HEX (ex: '#80a880', '#FF6B6B', '#3B82F6')"
+                    },
+                    companyName: {
+                      type: "string",
+                      description: "Nom de l'entreprise ou marque affiché sur les slides (ex: 'Numtema Design')"
+                    },
+                    companyWebsite: {
+                      type: "string",
+                      description: "Site web ou handle social (ex: 'numtema.design')"
+                    },
+                    callToAction: {
+                      type: "string",
+                      description: "Appel à l'action final personnalisé sur le dernier slide"
+                    },
+                    autoGenerateImages: {
+                      type: "boolean",
+                      default: false,
+                      description: "Si true, génère immédiatement les images d'arrière-plan en haute définition pour chaque slide."
                     }
                   },
                   required: ["topic"]
@@ -104,7 +162,7 @@ app.get("/openapi.json", (req, res) => {
           },
           responses: {
             "200": {
-              description: "Carrousel généré et enregistré. Contient la liste des slides, les prompts visuels pour chaque slide, le lien d'édition et le lien de téléchargement direct.",
+              description: "Carrousel généré et sauvegardé. Contient les slides, prompts d'images, editUrl et downloadUrl.",
               content: {
                 "application/json": {
                   schema: {
@@ -112,10 +170,9 @@ app.get("/openapi.json", (req, res) => {
                     properties: {
                       id: { type: "string" },
                       title: { type: "string" },
-                      projectUrl: { type: "string", description: "Lien direct pour ouvrir et modifier dans le Studio" },
-                      editUrl: { type: "string", description: "Lien direct pour ouvrir et modifier dans le Studio" },
-                      downloadUrl: { type: "string", description: "Lien direct pour télécharger le pack ZIP des slides" },
-                      exportUrl: { type: "string", description: "Lien direct pour télécharger le pack ZIP des slides" },
+                      projectUrl: { type: "string", description: "Lien d'ouverture du projet dans le Studio" },
+                      editUrl: { type: "string", description: "Lien d'édition et personnalisation dans le Studio" },
+                      downloadUrl: { type: "string", description: "Lien de téléchargement direct du pack ZIP d'images" },
                       accentColor: { type: "string" },
                       slides: {
                         type: "array",
@@ -124,8 +181,80 @@ app.get("/openapi.json", (req, res) => {
                           properties: {
                             headline: { type: "string" },
                             body: { type: "string" },
-                            visualPrompt: { type: "string", description: "Prompt de l'image de fond pour ce slide" },
-                            layout: { type: "string" }
+                            visualPrompt: { type: "string", description: "Prompt visuel pour l'image de fond" },
+                            layout: { type: "string" },
+                            imageUri: { type: "string" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/generate-batch": {
+        post: {
+          summary: "Générer un lot de plusieurs carrousels simultanément (Batch Creation)",
+          description: "Permet de générer plusieurs carrousels d'un seul coup (ex: pour un calendrier de contenu hebdomadaire) et retourne la liste de tous les projets sauvegardés avec leurs liens respectifs.",
+          operationId: "generateBatchCarousels",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    carousels: {
+                      type: "array",
+                      description: "Liste des carrousels à générer avec leurs paramètres individuels",
+                      items: {
+                        type: "object",
+                        properties: {
+                          topic: { type: "string", description: "Sujet du carrousel" },
+                          count: { type: "integer", default: 6 },
+                          intent: { type: "string", enum: ["educational", "storytelling", "checklist", "promotion", "trends"] },
+                          imageStyle: { type: "string" },
+                          targetAudience: { type: "string" },
+                          accentColor: { type: "string" },
+                          callToAction: { type: "string" },
+                          autoGenerateImages: { type: "boolean", default: false }
+                        },
+                        required: ["topic"]
+                      }
+                    },
+                    topics: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Alternative simple : liste des sujets sous forme de tableau de chaînes"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Lot de carrousels générés avec succès.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      count: { type: "integer" },
+                      projects: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            title: { type: "string" },
+                            editUrl: { type: "string" },
+                            downloadUrl: { type: "string" },
+                            slidesCount: { type: "integer" }
                           }
                         }
                       }
@@ -162,7 +291,7 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/edit-slide": {
         post: {
-          summary: "Retoucher un slide spécifique",
+          summary: "Retoucher un slide spécifique avec une consigne IA",
           operationId: "editSlide",
           requestBody: {
             required: true,
@@ -232,6 +361,29 @@ if (process.env.DATABASE_URL) {
   console.log("[Numtema] Using local JSON DB:", PROJECTS_FILE);
 }
 
+// Helper to save a single project in DB and local file
+async function persistProject(project: any) {
+  if (pgPool) {
+    try {
+      await pgPool.query(
+        "INSERT INTO numtema_projects (id, data, updated_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = $3;",
+        [project.id, JSON.stringify(project), project.updatedAt || Date.now()]
+      );
+    } catch (dbErr) {
+      console.warn("[Numtema] PostgreSQL persist warning:", dbErr);
+    }
+  }
+
+  try {
+    const existing = fs.existsSync(PROJECTS_FILE) ? JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8")) : [];
+    const filtered = existing.filter((p: any) => p.id !== project.id);
+    filtered.unshift(project);
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(filtered, null, 2));
+  } catch (fErr) {
+    console.warn("[Numtema] File persist warning:", fErr);
+  }
+}
+
 app.get("/api/projects", async (req, res) => {
   try {
     if (pgPool) {
@@ -246,6 +398,47 @@ app.get("/api/projects", async (req, res) => {
     res.json(JSON.parse(data));
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to load projects" });
+  }
+});
+
+app.get("/api/projects/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (pgPool) {
+      try {
+        const result = await pgPool.query("SELECT data FROM numtema_projects WHERE id = $1 LIMIT 1;", [id]);
+        if (result.rows.length > 0) {
+          return res.json(result.rows[0].data);
+        }
+      } catch (dbErr) {
+        console.warn("[Numtema] PostgreSQL get by id fallback to file:", dbErr);
+      }
+    }
+    const data: any[] = fs.existsSync(PROJECTS_FILE) ? JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8")) : [];
+    const found = data.find(p => p.id === id);
+    if (found) return res.json(found);
+    res.status(404).json({ error: "Project not found" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to load project" });
+  }
+});
+
+app.delete("/api/projects/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (pgPool) {
+      try {
+        await pgPool.query("DELETE FROM numtema_projects WHERE id = $1;", [id]);
+      } catch (dbErr) {
+        console.warn("[Numtema] PostgreSQL delete warning:", dbErr);
+      }
+    }
+    const data: any[] = fs.existsSync(PROJECTS_FILE) ? JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8")) : [];
+    const filtered = data.filter(p => p.id !== id);
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(filtered, null, 2));
+    res.json({ success: true, message: `Project ${id} deleted` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to delete project" });
   }
 });
 
@@ -381,7 +574,6 @@ app.post("/api/analyze-design", async (req, res) => {
 
 /**
  * Safely sanitizes prompt history for Gemini models to prevent role validation exceptions.
- * It removes any leading model responses and merges consecutive identical-role messages.
  */
 function sanitizeContents(historyList: any[]): any[] {
   const result: any[] = [];
@@ -406,49 +598,129 @@ function sanitizeContents(historyList: any[]): any[] {
 }
 
 /**
- * Slide Carousel Content generation helper
+ * Internal helper to generate a high quality slide image via Gemini or Pollinations fallback
  */
-app.post("/api/generate-carousel", async (req, res) => {
+async function generateSlideImageInternal(prompt: string, aspectRatio: string = "4:5", vibe?: string): Promise<string> {
+  const imageRatio = aspectRatio === "4:5" ? "3:4" : "1:1";
+  const [w, h] = aspectRatio === "4:5" ? [1080, 1350] : [1080, 1080];
+  const cleanPrompt = encodeURIComponent(`${prompt}, ${vibe || "modern aesthetic background, minimalist, high resolution"}`);
+  const fallbackUri = `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${w}&height=${h}&nologo=true`;
+
   try {
-    const { topic, history, spec, count = 6, intent, imageStyle, visualVibe } = req.body;
     const ai = getAI();
-
-    // Perform clean, robust sanitization on history
-    const contents = sanitizeContents(history || []);
-
-    let intentGuideline = "";
-    if (intent === "educational") {
-      intentGuideline = "\nStructure the copy as a step-by-step tutorial or educational guide. Walk the reader logically from problem to solution with clear action items.";
-    } else if (intent === "storytelling") {
-      intentGuideline = "\nWrite in a storytelling framework. Start with a hook/anecdote, share the struggle/journey, and reveal a breakthrough lesson at the end.";
-    } else if (intent === "checklist") {
-      intentGuideline = "\nCreate a handy checklist, summary, or cheat sheet format. Focus on high-value tools, tips, or resource lists that are highly bookmarkable.";
-    } else if (intent === "promotion") {
-      intentGuideline = "\nStructure the copy for marketing conversion and product launching. Highlight pain points, introduce the product/service as the solution, and end with a strong Call-To-Action (CTA).";
-    } else if (intent === "trends") {
-      intentGuideline = "\nFocus on industry news, market trends, or recent updates. Provide insightful analysis or commentary on why this matters right now.";
-    }
-
-    const vibeInstruction = (imageStyle || visualVibe)
-      ? `\nBackground Images Art Direction: "${imageStyle || visualVibe}". For each slide, write a rich visualPrompt describing artistic background visuals adhering strictly to this aesthetic.`
-      : "\nFor each slide, write a vivid visualPrompt describing background art matching the content tone.";
-
-    // Add immediate request part
-    const promptMessage = `Create exactly ${count} social media slides for a creative carousel about the topic: "${topic}". Ensure high conversion copywriting.${intentGuideline}${vibeInstruction}
-${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(spec)}` : ""}`;
-
-    if (contents.length > 0 && contents[contents.length - 1].role === "user") {
-      // If the last message is from user, merge the final prompt design instructions with it
-      contents[contents.length - 1].parts[0].text += "\n" + promptMessage;
-    } else {
-      // Otherwise list as a new user entry
-      contents.push({
-        role: "user",
-        parts: [{ text: promptMessage }]
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite-image",
+        contents: {
+          parts: [{ text: `A professional, premium digital illustration, background or visual asset suitable for a high-quality presentation slide: ${prompt}. Esthetic style vibe: ${vibe || "modern gradient clean tech vector art style"}` }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: imageRatio as any,
+            imageSize: "1K"
+          }
+        }
+      });
+    } catch (errLite) {
+      response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: {
+          parts: [{ text: `A professional, premium digital illustration, background or visual asset suitable for a high-quality presentation slide: ${prompt}. Esthetic style vibe: ${vibe || "modern gradient clean tech vector art style"}` }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: imageRatio as any,
+            imageSize: "1K"
+          }
+        }
       });
     }
 
-    let response;
+    const candidates = response.candidates;
+    if (candidates && candidates.length > 0) {
+      const parts = candidates[0].content?.parts;
+      if (parts) {
+        for (const part of parts) {
+          if (part.inlineData && part.inlineData.data) {
+            return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+          }
+        }
+      }
+    }
+    return fallbackUri;
+  } catch (err) {
+    return fallbackUri;
+  }
+}
+
+/**
+ * Core internal carousel generator function (used by both single and batch endpoints)
+ */
+async function generateCarouselInternal(params: {
+  topic: string;
+  history?: any[];
+  spec?: any;
+  count?: number;
+  intent?: string;
+  targetAudience?: string;
+  imageStyle?: string;
+  visualVibe?: string;
+  accentColor?: string;
+  companyName?: string;
+  companyWebsite?: string;
+  callToAction?: string;
+  autoGenerateImages?: boolean;
+}, serverUrl: string) {
+  const {
+    topic,
+    history,
+    spec,
+    count = 6,
+    intent,
+    targetAudience,
+    imageStyle,
+    visualVibe,
+    accentColor = "#80a880",
+    companyName = "Numtema Design",
+    companyWebsite = "numtema.design",
+    callToAction,
+    autoGenerateImages = false
+  } = params;
+
+  const effectiveVibe = imageStyle || visualVibe || spec?.vibe || "minimalist dark studio with elegant emerald green neon reflections, abstract 3D geometry, commercial aesthetic, 8k";
+  const contents = sanitizeContents(history || []);
+
+  let intentGuideline = "";
+  if (intent === "educational") {
+    intentGuideline = "\nStructure the copy as a step-by-step tutorial or educational guide. Walk the reader logically from problem to solution with clear action items.";
+  } else if (intent === "storytelling") {
+    intentGuideline = "\nWrite in a storytelling framework. Start with a hook/anecdote, share the struggle/journey, and reveal a breakthrough lesson at the end.";
+  } else if (intent === "checklist") {
+    intentGuideline = "\nCreate a handy checklist, summary, or cheat sheet format. Focus on high-value tools, tips, or resource lists that are highly bookmarkable.";
+  } else if (intent === "promotion") {
+    intentGuideline = "\nStructure the copy for marketing conversion and product launching. Highlight pain points, introduce the product/service as the solution, and end with a strong Call-To-Action (CTA).";
+  } else if (intent === "trends") {
+    intentGuideline = "\nFocus on industry news, market trends, or recent updates. Provide insightful analysis or commentary on why this matters right now.";
+  }
+
+  const audienceGuideline = targetAudience ? `\nTarget Audience: Speak specifically to "${targetAudience}" using their vocabulary and addressing their daily friction points.` : "";
+  const vibeInstruction = `\nBackground Visual Art Direction: "${effectiveVibe}". For each slide, write a rich visualPrompt describing background visuals adhering strictly to this aesthetic.`;
+  const ctaInstruction = callToAction ? `\nFinal Slide Call-To-Action: Ensure the final slide concludes with this specific CTA: "${callToAction}".` : "";
+
+  const promptMessage = `Create exactly ${count} social media slides for a creative carousel about the topic: "${topic}". Ensure high conversion copywriting.${intentGuideline}${audienceGuideline}${vibeInstruction}${ctaInstruction}
+${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(spec)}` : ""}`;
+
+  if (contents.length > 0 && contents[contents.length - 1].role === "user") {
+    contents[contents.length - 1].parts[0].text += "\n" + promptMessage;
+  } else {
+    contents.push({ role: "user", parts: [{ text: promptMessage }] });
+  }
+
+  let carouselData: any = null;
+
+  try {
+    const ai = getAI();
     const carouselConfig = {
       systemInstruction: "You are an award-winning content marketer, social media copywriter, and digital slide deck architecture expert. Your goal is to deliver perfectly structured carousel config properties matching requested subjects.",
       responseMimeType: "application/json",
@@ -478,166 +750,173 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
     };
 
     try {
-      let carouselData: any = null;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents,
+        config: carouselConfig
+      });
+      const text = response.text;
+      if (text) carouselData = JSON.parse(text.trim());
+    } catch (modelErr: any) {
+      console.warn("Fallback to gemini-2.5-flash for generate-carousel:", modelErr?.message || modelErr);
       try {
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-lite",
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
           contents,
           config: carouselConfig
         });
         const text = response.text;
         if (text) carouselData = JSON.parse(text.trim());
-      } catch (modelErr: any) {
-        console.warn("Fallback to gemini-2.5-flash for generate-carousel:", modelErr?.message || modelErr);
-        try {
-          response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents,
-            config: carouselConfig
-          });
-          const text = response.text;
-          if (text) carouselData = JSON.parse(text.trim());
-        } catch (fErr) {
-          console.warn("Gemini model error, using resilient fallback template.");
-        }
-      }
-
-      if (!carouselData) {
-        const cleanTopic = topic.replace(/[{}"]/g, "").trim();
-        const fallbackSlides = [
-          {
-            headline: `5 signes que ta {présence en ligne} te fait perdre des clients`,
-            body: `Un prospect se fait un avis en 3 secondes. Si ton système digital a des failles, tes {opportunités s'envolent}.`,
-            visualPrompt: `Minimalist dark studio with elegant emerald green neon reflections, abstract 3D geometry, commercial aesthetic, 8k.`,
-            layout: "center"
-          },
-          {
-            headline: `1. Ton site n'est pas {adapté au mobile}`,
-            body: `Plus de 70% de tes visiteurs sont sur téléphone. Un design non responsive ou lent détruit instantanément {ta crédibilité}.`,
-            visualPrompt: `Modern smartphone mockup showcasing ultra-clean UI design in a soft studio lighting atmosphere.`,
-            layout: "bottom-left"
-          },
-          {
-            headline: `2. Ton offre est {trop complexe}`,
-            body: `Si un visiteur doit réfléchir plus de 5 secondes pour comprendre ce que tu vends, {il quitte la page}.`,
-            visualPrompt: `Abstract minimalist maze resolving into a single glowing direct path, architectural lighting.`,
-            layout: "split-vertical"
-          },
-          {
-            headline: `3. Tu es invisible sur {Google}`,
-            body: `Tes futurs clients recherchent activement tes compétences, mais ce sont {tes concurrents} qu'ils trouvent.`,
-            visualPrompt: `Digital search analytics interface with illuminated metrics and high contrast tech aesthetic.`,
-            layout: "bold-title"
-          },
-          {
-            headline: `4. Aucun {parcours clair} pour te contacter`,
-            body: `Formulaire à rallonge, absence de bouton d'action ou WhatsApp caché = {90% de prospects perdus}.`,
-            visualPrompt: `Futuristic luminous doorway leading to an open modern terrace, warm ambient lighting.`,
-            layout: "bottom-left"
-          },
-          {
-            headline: `Fais passer ton business au {niveau supérieur}`,
-            body: `Ton activité mérite un écosystème qui convertit. {Numtema Design} construit ta présence sur-mesure.`,
-            visualPrompt: `Sleek high-end creative agency workspace with panoramic windows, minimalist luxury aesthetic.`,
-            layout: "center"
-          }
-        ];
-
-        carouselData = {
-          title: cleanTopic || "Carrousel Numtema",
-          accentColor: spec?.accentColor || "#80a880",
-          fontFamily: spec?.fontFamily || "Outfit",
-          aspectRatio: "4:5",
-          slides: fallbackSlides.slice(0, count || 6)
-        };
-      }
-
-      // Auto-save project to PostgreSQL and Storage
-      const host = req.get("host") || "numtemacarrousel.coolify.dallico.com";
-      const protocol = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-      const serverUrl = `${protocol}://${host}`;
-      const projectId = `project-${Date.now()}`;
-
-      const fullProject = {
-        id: projectId,
-        name: carouselData.title || topic,
-        updatedAt: Date.now(),
-        config: {
-          id: projectId,
-          title: carouselData.title || topic,
-          accentColor: carouselData.accentColor || spec?.accentColor || "#80a880",
-          fontFamily: carouselData.fontFamily || spec?.fontFamily || "Outfit",
-          aspectRatio: (carouselData.aspectRatio as '1:1' | '4:5') || "4:5",
-          theme: "light",
-          branding: {
-            companyName: "Numtema Design",
-            companyWebsite: "numtema.design",
-            showBranding: true,
-            logoSize: 27,
-            fontSize: 13
-          },
-          slides: (carouselData.slides || []).map((s: any, idx: number) => ({
-            id: `slide-${idx}-${Date.now()}`,
-            headline: s.headline,
-            body: s.body,
-            visualPrompt: s.visualPrompt,
-            layout: s.layout || "center",
-            overlayOpacity: 0.8,
-            headlineSize: 34,
-            bodySize: 16,
-            contentPadding: 44,
-            textAlign: s.layout === "center" ? "center" : "left"
-          }))
-        },
-        chatHistory: [{ role: "user", text: topic }]
-      };
-
-      if (pgPool) {
-        try {
-          await pgPool.query(
-            "INSERT INTO numtema_projects (id, data, updated_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = $3;",
-            [fullProject.id, JSON.stringify(fullProject), fullProject.updatedAt]
-          );
-          console.log("[Numtema] Auto-saved new carousel to PostgreSQL:", fullProject.id);
-        } catch (dbErr) {
-          console.warn("[Numtema] PostgreSQL auto-save warning:", dbErr);
-        }
-      }
-
-      // Also append to local file cache
-      try {
-        const existingData = fs.existsSync(PROJECTS_FILE) ? JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8")) : [];
-        existingData.unshift(fullProject);
-        fs.writeFileSync(PROJECTS_FILE, JSON.stringify(existingData, null, 2));
       } catch (fErr) {
-        console.warn("[Numtema] File save warning:", fErr);
+        console.warn("Gemini model error, using resilient fallback template.");
       }
-
-      const projectUrl = `${serverUrl}/?project=${projectId}`;
-      const editUrl = projectUrl;
-      const downloadUrl = `${projectUrl}&export=true`;
-
-      return res.json({
-        id: projectId,
-        projectId,
-        title: fullProject.name,
-        accentColor: fullProject.config.accentColor,
-        fontFamily: fullProject.config.fontFamily,
-        aspectRatio: fullProject.config.aspectRatio,
-        slides: fullProject.config.slides,
-        projectUrl,
-        editUrl,
-        downloadUrl,
-        exportUrl: downloadUrl,
-        directLink: projectUrl,
-        viewUrl: projectUrl,
-        project: fullProject,
-        message: `Carrousel créé et enregistré dans le Studio Numtema ! Lien pour modifier : ${editUrl} | Lien pour télécharger en ZIP : ${downloadUrl}`
-      });
-    } catch (aiErr: any) {
-      console.warn("Unexpected generation error:", aiErr?.message || aiErr);
-      res.status(500).json({ error: aiErr?.message || "Failed to generate carousel contents." });
     }
+  } catch (e) {
+    console.warn("Gemini initialization warning, activating resilient smart generator fallback.");
+  }
+
+  // Resilient fallback if AI service was unavailable
+  if (!carouselData) {
+    const cleanTopic = topic.replace(/[{}"]/g, "").trim();
+    const fallbackSlides = [
+      {
+        headline: `5 signes que ta {présence en ligne} te fait perdre des clients`,
+        body: `Un prospect se fait un avis en 3 secondes. Si ton système digital a des failles, tes {opportunités s'envolent}.`,
+        visualPrompt: `Minimalist dark studio with elegant emerald green neon reflections, abstract 3D geometry, commercial aesthetic, 8k.`,
+        layout: "center"
+      },
+      {
+        headline: `1. Ton site n'est pas {adapté au mobile}`,
+        body: `Plus de 70% de tes visiteurs sont sur téléphone. Un design non responsive ou lent détruit instantanément {ta crédibilité}.`,
+        visualPrompt: `Modern smartphone mockup showcasing ultra-clean UI design in a soft studio lighting atmosphere.`,
+        layout: "bottom-left"
+      },
+      {
+        headline: `2. Ton offre est {trop complexe}`,
+        body: `Si un visiteur doit réfléchir plus de 5 secondes pour comprendre ce que tu vends, {il quitte la page}.`,
+        visualPrompt: `Abstract minimalist maze resolving into a single glowing direct path, architectural lighting.`,
+        layout: "split-vertical"
+      },
+      {
+        headline: `3. Tu es invisible sur {Google}`,
+        body: `Tes futurs clients recherchent activement tes compétences, mais ce sont {tes concurrents} qu'ils trouvent.`,
+        visualPrompt: `Digital search analytics interface with illuminated metrics and high contrast tech aesthetic.`,
+        layout: "bold-title"
+      },
+      {
+        headline: `4. Aucun {parcours clair} pour te contacter`,
+        body: `Formulaire à rallonge, absence de bouton d'action ou WhatsApp caché = {90% de prospects perdus}.`,
+        visualPrompt: `Futuristic luminous doorway leading to an open modern terrace, warm ambient lighting.`,
+        layout: "bottom-left"
+      },
+      {
+        headline: `Fais passer ton business au {niveau supérieur}`,
+        body: callToAction || `Ton activité mérite un écosystème qui convertit. {Numtema Design} construit ta présence sur-mesure.`,
+        visualPrompt: `Sleek high-end creative agency workspace with panoramic windows, minimalist luxury aesthetic.`,
+        layout: "center"
+      }
+    ];
+
+    carouselData = {
+      title: cleanTopic || "Carrousel Numtema",
+      accentColor: accentColor || spec?.accentColor || "#80a880",
+      fontFamily: spec?.fontFamily || "Outfit",
+      aspectRatio: "4:5",
+      slides: fallbackSlides.slice(0, count || 6)
+    };
+  }
+
+  const projectId = `project-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+
+  // Process slides
+  const processedSlides = (carouselData.slides || []).map((s: any, idx: number) => ({
+    id: `slide-${idx}-${Date.now()}`,
+    headline: s.headline,
+    body: s.body,
+    visualPrompt: s.visualPrompt,
+    layout: s.layout || "center",
+    overlayOpacity: 0.8,
+    headlineSize: 34,
+    bodySize: 16,
+    contentPadding: 44,
+    textAlign: s.layout === "center" ? "center" : "left",
+    imageUri: s.imageUri
+  }));
+
+  // Auto-generate images in background if requested
+  if (autoGenerateImages) {
+    console.log(`[Numtema] Auto-generating ${processedSlides.length} images for project ${projectId}...`);
+    for (let i = 0; i < processedSlides.length; i++) {
+      if (processedSlides[i].visualPrompt) {
+        processedSlides[i].imageUri = await generateSlideImageInternal(
+          processedSlides[i].visualPrompt,
+          carouselData.aspectRatio || "4:5",
+          effectiveVibe
+        );
+      }
+    }
+  }
+
+  const fullProject = {
+    id: projectId,
+    name: carouselData.title || topic,
+    updatedAt: Date.now(),
+    config: {
+      id: projectId,
+      title: carouselData.title || topic,
+      accentColor: carouselData.accentColor || accentColor || "#80a880",
+      fontFamily: carouselData.fontFamily || spec?.fontFamily || "Outfit",
+      aspectRatio: (carouselData.aspectRatio as '1:1' | '4:5') || "4:5",
+      theme: "light",
+      branding: {
+        companyName: companyName || "Numtema Design",
+        companyWebsite: companyWebsite || "numtema.design",
+        showBranding: true,
+        logoSize: 27,
+        fontSize: 13
+      },
+      slides: processedSlides
+    },
+    chatHistory: [{ role: "user", text: topic }]
+  };
+
+  await persistProject(fullProject);
+
+  const projectUrl = `${serverUrl}/?project=${projectId}`;
+  const editUrl = projectUrl;
+  const downloadUrl = `${projectUrl}&export=true`;
+
+  return {
+    id: projectId,
+    projectId,
+    title: fullProject.name,
+    accentColor: fullProject.config.accentColor,
+    fontFamily: fullProject.config.fontFamily,
+    aspectRatio: fullProject.config.aspectRatio,
+    slides: fullProject.config.slides,
+    slidesCount: fullProject.config.slides.length,
+    projectUrl,
+    editUrl,
+    downloadUrl,
+    exportUrl: downloadUrl,
+    directLink: projectUrl,
+    viewUrl: projectUrl,
+    project: fullProject,
+    message: `Carrousel créé et enregistré dans le Studio Numtema ! Lien pour modifier : ${editUrl} | Lien pour télécharger en ZIP : ${downloadUrl}`
+  };
+}
+
+/**
+ * Slide Carousel Content generation endpoint
+ */
+app.post("/api/generate-carousel", async (req, res) => {
+  try {
+    const host = req.get("host") || "numtemacarrousel.coolify.dallico.com";
+    const protocol = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    const serverUrl = `${protocol}://${host}`;
+
+    const result = await generateCarouselInternal(req.body, serverUrl);
+    res.json(result);
   } catch (error: any) {
     console.error("Carousel generation fatal error:", error);
     res.status(500).json({ error: error.message || "Failed to generate carousel contents." });
@@ -645,8 +924,52 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
 });
 
 /**
- * Smart Visual Prompt Builder — uses cheap text model to auto-generate
- * an optimised image generation prompt from the slide's content context.
+ * Batch Carousel Generation endpoint (generates multiple carousels at once)
+ */
+app.post("/api/generate-batch", async (req, res) => {
+  try {
+    const { carousels = [], topics = [] } = req.body;
+    const host = req.get("host") || "numtemacarrousel.coolify.dallico.com";
+    const protocol = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    const serverUrl = `${protocol}://${host}`;
+
+    let itemsToProcess: any[] = [];
+
+    if (Array.isArray(carousels) && carousels.length > 0) {
+      itemsToProcess = carousels;
+    } else if (Array.isArray(topics) && topics.length > 0) {
+      itemsToProcess = topics.map((t: string) => ({ topic: t }));
+    }
+
+    if (itemsToProcess.length === 0) {
+      return res.status(400).json({ error: "Please provide an array of 'carousels' or 'topics'." });
+    }
+
+    console.log(`[Numtema] Generating batch of ${itemsToProcess.length} carousels...`);
+    const results = [];
+
+    for (const item of itemsToProcess) {
+      try {
+        const result = await generateCarouselInternal(item, serverUrl);
+        results.push(result);
+      } catch (err: any) {
+        console.error(`Failed to generate carousel for topic "${item.topic}":`, err);
+      }
+    }
+
+    res.json({
+      success: true,
+      count: results.length,
+      projects: results
+    });
+  } catch (error: any) {
+    console.error("Batch generation error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate batch carousels." });
+  }
+});
+
+/**
+ * Smart Visual Prompt Builder
  */
 app.post("/api/enhance-visual-prompt", async (req, res) => {
   try {
@@ -699,68 +1022,11 @@ Generate a single, rich, detailed visual prompt (max 80 words) that perfectly ma
 app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, aspectRatio, vibe } = req.body;
-    const ai = getAI();
-
-    // Mapping aspect ratio from standard slider sizes to supported gemini-2.5-flash-image ones
-    const imageRatio = aspectRatio === "4:5" ? "3:4" : "1:1";
-
-    let response;
-    try {
-      response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite-image",
-        contents: {
-          parts: [{ text: `A professional, premium digital illustration, background or visual asset suitable for a high-quality presentation slide: ${prompt}. Esthetic style vibe: ${vibe || "modern gradient clean tech vector art style"}` }]
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: imageRatio as any,
-            imageSize: "1K"
-          }
-        }
-      });
-    } catch (errLite) {
-      console.warn("Falling back to gemini-2.5-flash-image:", errLite);
-      response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: {
-          parts: [{ text: `A professional, premium digital illustration, background or visual asset suitable for a high-quality presentation slide: ${prompt}. Esthetic style vibe: ${vibe || "modern gradient clean tech vector art style"}` }]
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: imageRatio as any,
-            imageSize: "1K"
-          }
-        }
-      });
-    }
-
-    let imageUri = null;
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content?.parts;
-      if (parts) {
-        for (const part of parts) {
-          if (part.inlineData && part.inlineData.data) {
-            imageUri = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-            break;
-          }
-        }
-      }
-    }
-
-    if (!imageUri) {
-      const cleanPrompt = encodeURIComponent(`${prompt}, ${vibe || "modern aesthetic background, minimalist, high resolution"}`);
-      const [w, h] = aspectRatio === "4:5" ? [1080, 1350] : [1080, 1080];
-      imageUri = `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${w}&height=${h}&nologo=true`;
-    }
-
+    const imageUri = await generateSlideImageInternal(prompt, aspectRatio, vibe);
     res.json({ imageUri });
   } catch (error: any) {
-    console.warn("AI Slide Image fallback active:", error?.message || error);
-    const cleanPrompt = encodeURIComponent(`${req.body.prompt || "modern clean abstract digital background"}, ${req.body.vibe || "8k, high quality"}`);
-    const [w, h] = req.body.aspectRatio === "4:5" ? [1080, 1350] : [1080, 1080];
-    const imageUri = `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${w}&height=${h}&nologo=true`;
-    res.json({ imageUri });
+    console.error("AI Slide Image draw failed:", error);
+    res.status(500).json({ error: error.message || "Image generation failed" });
   }
 });
 
