@@ -13,6 +13,13 @@ export default defineConfig(() => {
         react(),
         tailwindcss()
       ],
+      build: {
+        rollupOptions: {
+          external: [
+            /^core-js/
+          ]
+        }
+      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
