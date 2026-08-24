@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import os from "os";
+import { Pool } from "pg";
 
 // Load environment variables from .env.local or .env if they exist
 if (fs.existsSync(".env.local")) {
@@ -29,18 +30,53 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// --- API Routes ---
+// --- Storage & Database Routes ---
 
 const PROJECTS_FILE = path.join(os.tmpdir(), "numtema_projects.json");
-
-// Ensure projects db exists
 if (!fs.existsSync(PROJECTS_FILE)) {
   fs.writeFileSync(PROJECTS_FILE, JSON.stringify([]));
 }
-console.log("[Numtema] Projects DB:", PROJECTS_FILE);
 
-app.get("/api/projects", (req, res) => {
+let pgPool: Pool | null = null;
+if (process.env.DATABASE_URL) {
   try {
+    const isLocal = process.env.DATABASE_URL.includes("localhost") || process.env.DATABASE_URL.includes("127.0.0.1");
+    pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: isLocal ? false : { rejectUnauthorized: false }
+    });
+    console.log("[Numtema] PostgreSQL configured with DATABASE_URL");
+
+    // Initialize database table automatically
+    pgPool.query(`
+      CREATE TABLE IF NOT EXISTS numtema_projects (
+        id VARCHAR(255) PRIMARY KEY,
+        data JSONB NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+    `).then(() => {
+      console.log("[Numtema] PostgreSQL table 'numtema_projects' ready.");
+    }).catch(err => {
+      console.error("[Numtema] PostgreSQL table creation warning:", err);
+    });
+  } catch (err) {
+    console.error("[Numtema] PostgreSQL Pool error:", err);
+    pgPool = null;
+  }
+} else {
+  console.log("[Numtema] Using local JSON DB:", PROJECTS_FILE);
+}
+
+app.get("/api/projects", async (req, res) => {
+  try {
+    if (pgPool) {
+      try {
+        const result = await pgPool.query("SELECT data FROM numtema_projects ORDER BY updated_at DESC;");
+        return res.json(result.rows.map(r => r.data));
+      } catch (dbErr) {
+        console.warn("[Numtema] PostgreSQL query fallback to file:", dbErr);
+      }
+    }
     const data = fs.readFileSync(PROJECTS_FILE, "utf-8");
     res.json(JSON.parse(data));
   } catch (error: any) {
@@ -48,9 +84,37 @@ app.get("/api/projects", (req, res) => {
   }
 });
 
-app.post("/api/projects", (req, res) => {
+app.post("/api/projects", async (req, res) => {
   try {
     const projects = req.body;
+    if (!Array.isArray(projects)) {
+      return res.status(400).json({ error: "Projects array expected" });
+    }
+
+    if (pgPool) {
+      try {
+        const client = await pgPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("DELETE FROM numtema_projects;");
+          for (const p of projects) {
+            await client.query(
+              "INSERT INTO numtema_projects (id, data, updated_at) VALUES ($1, $2, $3);",
+              [p.id || `project-${Date.now()}`, JSON.stringify(p), p.updatedAt || Date.now()]
+            );
+          }
+          await client.query("COMMIT");
+        } catch (trxErr) {
+          await client.query("ROLLBACK");
+          throw trxErr;
+        } finally {
+          client.release();
+        }
+      } catch (dbErr) {
+        console.warn("[Numtema] PostgreSQL save error, falling back to local file:", dbErr);
+      }
+    }
+
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
     res.json({ success: true });
   } catch (error: any) {
@@ -98,18 +162,18 @@ app.post("/api/analyze-design", async (req, res) => {
               fontFamily: { type: Type.STRING, description: "Master typography font. Choose from 'Outfit', 'Plus Jakarta Sans', 'Space Grotesk', 'Inter', 'Bebas Neue' or similar system standard sans-serif fonts corresponding to the image." },
               accentColor: { type: Type.STRING, description: "The vibrant dominant HEX accent color extracted from references." },
               margins_mm: { type: Type.NUMBER, description: "Padding/margins layout value. Range between 12 to 24." },
-              headlineSize: { type: Type.NUMBER, description: "Calculated headline pixel size. Standard range: 50 to 90." },
-              bodySize: { type: Type.NUMBER, description: "Calculated body pixel size. Standard range: 16 to 24." },
-              textAlign: { type: Type.STRING, description: "Natural alignment of the text content inside slides. Options: 'left', 'center', 'right'." },
-              overlayOpacity: { type: Type.NUMBER, description: "Target base overlay dark filter range for legibility: 0.1 to 0.9." },
-              vibe: { type: Type.STRING, description: "Dynamic style descriptor of images (e.g., 'minimalist tech gradients', 'modern 3D illustration', 'dark grunge, grain noise')." }
+              headlineSize: { type: Type.NUMBER, description: "Title font size extracted from design. Range between 40 to 80." },
+              bodySize: { type: Type.NUMBER, description: "Body copy font size. Range between 14 to 28." },
+              textAlign: { type: Type.STRING, enum: ["left", "center", "right"] },
+              overlayOpacity: { type: Type.NUMBER, description: "Gradient darkness opacity. Decimal value between 0.3 to 0.95." },
+              vibe: { type: Type.STRING, description: "Short descriptive artistic prompt modifier for the background imagery (e.g., 'minimalist bauhaus clean aesthetic with subtle grain')." }
             },
-            required: ["name", "fontFamily", "accentColor"]
+            required: ["name", "fontFamily", "accentColor", "margins_mm", "headlineSize", "bodySize", "textAlign", "overlayOpacity", "vibe"]
           }
         }
       });
-    } catch (modelErr) {
-      console.warn("Primary model error in analyze-design, falling back to gemini-2.5-flash:", modelErr);
+    } catch (modelErr: any) {
+      console.warn("Fallback to gemini-2.5-flash for analyze-design:", modelErr?.message || modelErr);
       response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [
@@ -126,13 +190,13 @@ app.post("/api/analyze-design", async (req, res) => {
               fontFamily: { type: Type.STRING, description: "Master typography font. Choose from 'Outfit', 'Plus Jakarta Sans', 'Space Grotesk', 'Inter', 'Bebas Neue' or similar system standard sans-serif fonts corresponding to the image." },
               accentColor: { type: Type.STRING, description: "The vibrant dominant HEX accent color extracted from references." },
               margins_mm: { type: Type.NUMBER, description: "Padding/margins layout value. Range between 12 to 24." },
-              headlineSize: { type: Type.NUMBER, description: "Calculated headline pixel size. Standard range: 50 to 90." },
-              bodySize: { type: Type.NUMBER, description: "Calculated body pixel size. Standard range: 16 to 24." },
-              textAlign: { type: Type.STRING, description: "Natural alignment of the text content inside slides. Options: 'left', 'center', 'right'." },
-              overlayOpacity: { type: Type.NUMBER, description: "Target base overlay dark filter range for legibility: 0.1 to 0.9." },
-              vibe: { type: Type.STRING, description: "Dynamic style descriptor of images (e.g., 'minimalist tech gradients', 'modern 3D illustration', 'dark grunge, grain noise')." }
+              headlineSize: { type: Type.NUMBER, description: "Title font size extracted from design. Range between 40 to 80." },
+              bodySize: { type: Type.NUMBER, description: "Body copy font size. Range between 14 to 28." },
+              textAlign: { type: Type.STRING, enum: ["left", "center", "right"] },
+              overlayOpacity: { type: Type.NUMBER, description: "Gradient darkness opacity. Decimal value between 0.3 to 0.95." },
+              vibe: { type: Type.STRING, description: "Short descriptive artistic prompt modifier for the background imagery (e.g., 'minimalist bauhaus clean aesthetic with subtle grain')." }
             },
-            required: ["name", "fontFamily", "accentColor"]
+            required: ["name", "fontFamily", "accentColor", "margins_mm", "headlineSize", "bodySize", "textAlign", "overlayOpacity", "vibe"]
           }
         }
       });
@@ -222,26 +286,25 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          title: { type: Type.STRING, description: "The viral catchy headline/concept for the whole carousel deck." },
-          accentColor: { type: Type.STRING, description: "Hex format brand primary accent color representing this deck concept." },
-          fontFamily: { type: Type.STRING, description: "The typography font name of choice. Choose from 'Outfit', 'Plus Jakarta Sans', 'Space Grotesk', 'Inter', 'Bebas Neue'." },
-          aspectRatio: { type: Type.STRING, description: "Standard carousel ratio. Must be '1:1' (Square) or '4:5' (Portrait)." },
+          title: { type: Type.STRING },
+          accentColor: { type: Type.STRING },
+          fontFamily: { type: Type.STRING },
+          aspectRatio: { type: Type.STRING, enum: ["1:1", "4:5"] },
           slides: {
             type: Type.ARRAY,
-            description: `Slides list. Create exactly ${count} highly engaging slides of structured progressive messaging or steps.`,
             items: {
               type: Type.OBJECT,
               properties: {
-                headline: { type: Type.STRING, description: "The main big bold statement for this slide. Wrap exactly ONE central word or visual punchline in curly braces {like this} to style with accent color (e.g., 'Learn {faster} today')." },
-                body: { type: Type.STRING, description: "Supporting narrative or explanation that adds immediate actionable value. Wrap styled words in curly braces if needed." },
-                visualPrompt: { type: Type.STRING, description: "Exquisite visual description prompt used for AI drawing background. Keep under 15 words." },
-                layout: { type: Type.STRING, description: "The recommended background layout theme. Choose exactly from: 'center', 'bottom-left', 'split-vertical', 'minimal', 'bold-title'." }
+                headline: { type: Type.STRING, description: "Punchy slide title. Use curly braces around one or two key words for accent highlight (e.g. 'How to {Scale} Fast')." },
+                body: { type: Type.STRING, description: "Detailed slide body text. Use curly braces around key phrases to underline (e.g. 'Use {automated workflows}')." },
+                visualPrompt: { type: Type.STRING, description: "Specific vivid prompt describing background art matching the content tone." },
+                layout: { type: Type.STRING, enum: ["center", "bottom-left", "split-vertical", "minimal", "bold-title"] }
               },
               required: ["headline", "body", "visualPrompt", "layout"]
             }
           }
         },
-        required: ["title", "accentColor", "fontFamily", "aspectRatio", "slides"]
+        required: ["title", "accentColor", "slides"]
       }
     };
 
@@ -251,8 +314,8 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
         contents,
         config: carouselConfig
       });
-    } catch (modelErr) {
-      console.warn("Primary model error in generate-carousel, falling back to gemini-2.5-flash:", modelErr);
+    } catch (modelErr: any) {
+      console.warn("Fallback to gemini-2.5-flash for generate-carousel:", modelErr?.message || modelErr);
       response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents,
@@ -262,7 +325,7 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
 
     const text = response.text;
     if (!text) {
-      throw new Error("No response output content was received from the model.");
+      throw new Error("Empty response received from content generation model.");
     }
 
     res.json(JSON.parse(text));
@@ -389,51 +452,85 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
+/**
+ * Slide Edit with AI Instruction helper
+ */
 app.post("/api/edit-slide", async (req, res) => {
   try {
     const { slide, instruction } = req.body;
+    if (!slide || !instruction) {
+      return res.status(400).json({ error: "Missing slide data or instruction." });
+    }
+
     const ai = getAI();
+
+    const prompt = `You are a social media copywriter and slide editor.
+Given this current slide:
+- Headline: "${slide.headline}"
+- Body: "${slide.body}"
+- Visual Concept: "${slide.visualPrompt}"
+- Layout: "${slide.layout}"
+
+Apply this user instruction: "${instruction}"
+
+Rules:
+- In the headline, surround 1-2 powerful accent words with curly braces, e.g. "Les 3 {Secrets}".
+- In the body, surround key phrases with curly braces to underline, e.g. "Utilisez {l'automatisation}".
+- Update the visualPrompt if relevant to the new content.
+- Keep the response strictly JSON.`;
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Modify this social media slide based on the user instruction: "${instruction}"
-Original slide data: ${JSON.stringify(slide)}`,
+      model: "gemini-2.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
-        systemInstruction: "You are an expert content copywriter. Rewrite or adjust the slide headline, body, visual prompt or layout based on the user's instructions. Keep all other fields intact. Output a perfect JSON object mapping the Slide properties.",
+        systemInstruction: "You are an expert presentation and social media copy editor. Output strictly JSON.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            headline: { type: Type.STRING },
-            body: { type: Type.STRING },
-            visualPrompt: { type: Type.STRING },
-            layout: { type: Type.STRING }
+            headline: { type: Type.STRING, description: "Updated headline with {accent} tags." },
+            body: { type: Type.STRING, description: "Updated body with {accent} tags." },
+            visualPrompt: { type: Type.STRING, description: "Updated visual prompt." },
+            layout: { type: Type.STRING, enum: ["center", "bottom-left", "split-vertical", "minimal", "bold-title"] }
           },
           required: ["headline", "body", "visualPrompt", "layout"]
         }
       }
     });
-    const updated = JSON.parse(response.text || "{}");
-    res.json({ ...slide, ...updated });
+
+    const text = response.text;
+    if (!text) {
+      throw new Error("No response received from edit model.");
+    }
+
+    const updated = JSON.parse(text);
+    res.json({
+      ...slide,
+      headline: updated.headline || slide.headline,
+      body: updated.body || slide.body,
+      visualPrompt: updated.visualPrompt || slide.visualPrompt,
+      layout: updated.layout || slide.layout
+    });
   } catch (error: any) {
-    console.error("AI Slide edit failed:", error);
-    res.status(500).json({ error: error.message || "Failed to edit slide" });
+    console.error("Edit slide AI failed:", error);
+    res.status(500).json({ error: error.message || "Failed to edit slide." });
   }
 });
 
-// --- Start express and Vite Server ---
-
+// Vite SSR / Static Server setup
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (!isProd) {
     const vite = await createViteServer({
-      server: {
+      server: { 
         middlewareMode: true,
         watch: {
-          // Ignore everything in the project root that isn't src/ or node_modules
           ignored: [
-            "**/.projects.json",
             "**/projects.json",
-            "**/*.json",
-            "**/data/**"
+            "**/.projects.json",
+            "**/numtema_projects.json",
+            "**/*.log"
           ]
         }
       },
