@@ -1,0 +1,11 @@
+{
+  "name": "CarouselFuzz Pro",
+  "description": "Premium AI social media architect with Design DNA capture.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
