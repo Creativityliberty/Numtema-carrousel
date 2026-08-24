@@ -76,7 +76,7 @@ app.get("/openapi.json", (req, res) => {
       "/api/generate-carousel": {
         post: {
           summary: "Générer un carrousel complet et l'enregistrer dans le Studio Numtema",
-          description: "Génère un carrousel complet avec des slides percutants, l'enregistre immédiatement dans la base de données de l'application et renvoie les slides ainsi qu'un lien URL direct pour ouvrir et exporter le carrousel dans le studio web.",
+          description: "Génère un carrousel complet avec des slides percutants et des prompts visuels d'images sur-mesure, l'enregistre immédiatement dans la base de données PostgreSQL et renvoie la liste des slides, le lien direct d'édition (editUrl) et le lien direct de téléchargement/export ZIP (downloadUrl).",
           operationId: "generateCarousel",
           requestBody: {
             required: true,
@@ -91,6 +91,10 @@ app.get("/openapi.json", (req, res) => {
                       type: "string", 
                       enum: ["educational", "storytelling", "checklist", "promotion", "trends"],
                       description: "Objectif éditorial"
+                    },
+                    imageStyle: {
+                      type: "string",
+                      description: "Style visuel ou direction artistique des images d'arrière-plan (ex: 'Rendu 3D minimaliste émeraude', 'Photographie studio cinématique', 'Abstrait tech futuristic')"
                     }
                   },
                   required: ["topic"]
@@ -100,7 +104,7 @@ app.get("/openapi.json", (req, res) => {
           },
           responses: {
             "200": {
-              description: "Carrousel généré et enregistré. Contient la liste des slides et le lien direct (projectUrl).",
+              description: "Carrousel généré et enregistré. Contient la liste des slides, les prompts visuels pour chaque slide, le lien d'édition et le lien de téléchargement direct.",
               content: {
                 "application/json": {
                   schema: {
@@ -108,7 +112,10 @@ app.get("/openapi.json", (req, res) => {
                     properties: {
                       id: { type: "string" },
                       title: { type: "string" },
-                      projectUrl: { type: "string", description: "Lien URL direct pour ouvrir ce carrousel dans le Studio Numtema" },
+                      projectUrl: { type: "string", description: "Lien direct pour ouvrir et modifier dans le Studio" },
+                      editUrl: { type: "string", description: "Lien direct pour ouvrir et modifier dans le Studio" },
+                      downloadUrl: { type: "string", description: "Lien direct pour télécharger le pack ZIP des slides" },
+                      exportUrl: { type: "string", description: "Lien direct pour télécharger le pack ZIP des slides" },
                       accentColor: { type: "string" },
                       slides: {
                         type: "array",
@@ -117,7 +124,7 @@ app.get("/openapi.json", (req, res) => {
                           properties: {
                             headline: { type: "string" },
                             body: { type: "string" },
-                            visualPrompt: { type: "string" },
+                            visualPrompt: { type: "string", description: "Prompt de l'image de fond pour ce slide" },
                             layout: { type: "string" }
                           }
                         }
@@ -403,7 +410,7 @@ function sanitizeContents(historyList: any[]): any[] {
  */
 app.post("/api/generate-carousel", async (req, res) => {
   try {
-    const { topic, history, spec, count = 7, intent } = req.body;
+    const { topic, history, spec, count = 6, intent, imageStyle, visualVibe } = req.body;
     const ai = getAI();
 
     // Perform clean, robust sanitization on history
@@ -422,8 +429,12 @@ app.post("/api/generate-carousel", async (req, res) => {
       intentGuideline = "\nFocus on industry news, market trends, or recent updates. Provide insightful analysis or commentary on why this matters right now.";
     }
 
+    const vibeInstruction = (imageStyle || visualVibe)
+      ? `\nBackground Images Art Direction: "${imageStyle || visualVibe}". For each slide, write a rich visualPrompt describing artistic background visuals adhering strictly to this aesthetic.`
+      : "\nFor each slide, write a vivid visualPrompt describing background art matching the content tone.";
+
     // Add immediate request part
-    const promptMessage = `Create exactly ${count} social media slides for a creative carousel about the topic: "${topic}". Ensure high conversion copywriting.${intentGuideline}
+    const promptMessage = `Create exactly ${count} social media slides for a creative carousel about the topic: "${topic}". Ensure high conversion copywriting.${intentGuideline}${vibeInstruction}
 ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(spec)}` : ""}`;
 
     if (contents.length > 0 && contents[contents.length - 1].role === "user") {
@@ -603,6 +614,8 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
       }
 
       const projectUrl = `${serverUrl}/?project=${projectId}`;
+      const editUrl = projectUrl;
+      const downloadUrl = `${projectUrl}&export=true`;
 
       return res.json({
         id: projectId,
@@ -613,10 +626,13 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
         aspectRatio: fullProject.config.aspectRatio,
         slides: fullProject.config.slides,
         projectUrl,
+        editUrl,
+        downloadUrl,
+        exportUrl: downloadUrl,
         directLink: projectUrl,
         viewUrl: projectUrl,
         project: fullProject,
-        message: `Carrousel généré et enregistré avec succès dans le Studio Numtema ! Lien d'accès direct : ${projectUrl}`
+        message: `Carrousel créé et enregistré dans le Studio Numtema ! Lien pour modifier : ${editUrl} | Lien pour télécharger en ZIP : ${downloadUrl}`
       });
     } catch (aiErr: any) {
       console.warn("Unexpected generation error:", aiErr?.message || aiErr);

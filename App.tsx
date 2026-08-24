@@ -100,6 +100,12 @@ export default function App() {
               if (matched) {
                 setCurrentProject(matched);
                 setChatHistory(matched.chatHistory || []);
+                if (params.get('export') === 'true') {
+                  setTimeout(() => {
+                    const btn = document.getElementById('btn-export-pack');
+                    if (btn) btn.click();
+                  }, 1200);
+                }
               }
             }
          }
@@ -482,7 +488,7 @@ export default function App() {
              <Button variant="glass" onClick={handleBuildArt} disabled={genState.isGeneratingImages}>
                 {genState.isGeneratingImages ? <span className="flex items-center gap-2 text-teal-600 dark:text-teal-400"><Loader2 className="animate-spin" size={14} /> Generating {genState.progress}%</span> : <span className="flex items-center gap-2"><ImageIcon size={18} /> Build Visuals</span>}
              </Button>
-             <Button variant="white" onClick={handleExport} disabled={isExporting}>
+             <Button id="btn-export-pack" variant="white" onClick={handleExport} disabled={isExporting}>
                 {isExporting ? <Loader2 className="animate-spin" /> : <Download size={18} />} Export Pack
              </Button>
           </div>
