@@ -75,7 +75,8 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/generate-carousel": {
         post: {
-          summary: "Générer un carrousel complet à partir d'un sujet",
+          summary: "Générer un carrousel complet et l'enregistrer dans le Studio Numtema",
+          description: "Génère un carrousel complet avec des slides percutants, l'enregistre immédiatement dans la base de données de l'application et renvoie les slides ainsi qu'un lien URL direct pour ouvrir et exporter le carrousel dans le studio web.",
           operationId: "generateCarousel",
           requestBody: {
             required: true,
@@ -97,7 +98,36 @@ app.get("/openapi.json", (req, res) => {
               }
             }
           },
-          responses: { "200": { description: "Carrousel généré" } }
+          responses: {
+            "200": {
+              description: "Carrousel généré et enregistré. Contient la liste des slides et le lien direct (projectUrl).",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      title: { type: "string" },
+                      projectUrl: { type: "string", description: "Lien URL direct pour ouvrir ce carrousel dans le Studio Numtema" },
+                      accentColor: { type: "string" },
+                      slides: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            headline: { type: "string" },
+                            body: { type: "string" },
+                            visualPrompt: { type: "string" },
+                            layout: { type: "string" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "/api/enhance-visual-prompt": {
@@ -437,77 +467,160 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
     };
 
     try {
+      let carouselData: any = null;
       try {
         response = await ai.models.generateContent({
           model: "gemini-2.5-flash-lite",
           contents,
           config: carouselConfig
         });
+        const text = response.text;
+        if (text) carouselData = JSON.parse(text.trim());
       } catch (modelErr: any) {
         console.warn("Fallback to gemini-2.5-flash for generate-carousel:", modelErr?.message || modelErr);
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents,
-          config: carouselConfig
-        });
-      }
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("Empty response received from content generation model.");
-      }
-
-      return res.json(JSON.parse(text));
-    } catch (aiErr: any) {
-      console.warn("Gemini API unavailable or 403 key revoked. Activating resilient smart generator fallback:", aiErr?.message || aiErr);
-      
-      const cleanTopic = topic.replace(/[{}"]/g, "").trim();
-      const fallbackSlides = [
-        {
-          headline: `5 signes que ta {présence en ligne} te fait perdre des clients`,
-          body: `Un prospect se fait un avis en 3 secondes. Si ton système digital a des failles, tes {opportunités s'envolent}.`,
-          visualPrompt: `Minimalist dark studio with elegant emerald green neon reflections, abstract 3D geometry, commercial aesthetic, 8k.`,
-          layout: "center"
-        },
-        {
-          headline: `1. Ton site n'est pas {adapté au mobile}`,
-          body: `Plus de 70% de tes visiteurs sont sur téléphone. Un design non responsive ou lent détruit instantanément {ta crédibilité}.`,
-          visualPrompt: `Modern smartphone mockup showcasing ultra-clean UI design in a soft studio lighting atmosphere.`,
-          layout: "bottom-left"
-        },
-        {
-          headline: `2. Ton offre est {trop complexe}`,
-          body: `Si un visiteur doit réfléchir plus de 5 secondes pour comprendre ce que tu vends, {il quitte la page}.`,
-          visualPrompt: `Abstract minimalist maze resolving into a single glowing direct path, architectural lighting.`,
-          layout: "split-vertical"
-        },
-        {
-          headline: `3. Tu es invisible sur {Google}`,
-          body: `Tes futurs clients recherchent activement tes compétences, mais ce sont {tes concurrents} qu'ils trouvent.`,
-          visualPrompt: `Digital search analytics interface with illuminated metrics and high contrast tech aesthetic.`,
-          layout: "bold-title"
-        },
-        {
-          headline: `4. Aucun {parcours clair} pour te contacter`,
-          body: `Formulaire à rallonge, absence de bouton d'action ou WhatsApp caché = {90% de prospects perdus}.`,
-          visualPrompt: `Futuristic luminous doorway leading to an open modern terrace, warm ambient lighting.`,
-          layout: "bottom-left"
-        },
-        {
-          headline: `Fais passer ton business au {niveau supérieur}`,
-          body: `Ton activité mérite un écosystème qui convertit. {Numtema Design} construit ta présence sur-mesure.`,
-          visualPrompt: `Sleek high-end creative agency workspace with panoramic windows, minimalist luxury aesthetic.`,
-          layout: "center"
+        try {
+          response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents,
+            config: carouselConfig
+          });
+          const text = response.text;
+          if (text) carouselData = JSON.parse(text.trim());
+        } catch (fErr) {
+          console.warn("Gemini model error, using resilient fallback template.");
         }
-      ];
+      }
+
+      if (!carouselData) {
+        const cleanTopic = topic.replace(/[{}"]/g, "").trim();
+        const fallbackSlides = [
+          {
+            headline: `5 signes que ta {présence en ligne} te fait perdre des clients`,
+            body: `Un prospect se fait un avis en 3 secondes. Si ton système digital a des failles, tes {opportunités s'envolent}.`,
+            visualPrompt: `Minimalist dark studio with elegant emerald green neon reflections, abstract 3D geometry, commercial aesthetic, 8k.`,
+            layout: "center"
+          },
+          {
+            headline: `1. Ton site n'est pas {adapté au mobile}`,
+            body: `Plus de 70% de tes visiteurs sont sur téléphone. Un design non responsive ou lent détruit instantanément {ta crédibilité}.`,
+            visualPrompt: `Modern smartphone mockup showcasing ultra-clean UI design in a soft studio lighting atmosphere.`,
+            layout: "bottom-left"
+          },
+          {
+            headline: `2. Ton offre est {trop complexe}`,
+            body: `Si un visiteur doit réfléchir plus de 5 secondes pour comprendre ce que tu vends, {il quitte la page}.`,
+            visualPrompt: `Abstract minimalist maze resolving into a single glowing direct path, architectural lighting.`,
+            layout: "split-vertical"
+          },
+          {
+            headline: `3. Tu es invisible sur {Google}`,
+            body: `Tes futurs clients recherchent activement tes compétences, mais ce sont {tes concurrents} qu'ils trouvent.`,
+            visualPrompt: `Digital search analytics interface with illuminated metrics and high contrast tech aesthetic.`,
+            layout: "bold-title"
+          },
+          {
+            headline: `4. Aucun {parcours clair} pour te contacter`,
+            body: `Formulaire à rallonge, absence de bouton d'action ou WhatsApp caché = {90% de prospects perdus}.`,
+            visualPrompt: `Futuristic luminous doorway leading to an open modern terrace, warm ambient lighting.`,
+            layout: "bottom-left"
+          },
+          {
+            headline: `Fais passer ton business au {niveau supérieur}`,
+            body: `Ton activité mérite un écosystème qui convertit. {Numtema Design} construit ta présence sur-mesure.`,
+            visualPrompt: `Sleek high-end creative agency workspace with panoramic windows, minimalist luxury aesthetic.`,
+            layout: "center"
+          }
+        ];
+
+        carouselData = {
+          title: cleanTopic || "Carrousel Numtema",
+          accentColor: spec?.accentColor || "#80a880",
+          fontFamily: spec?.fontFamily || "Outfit",
+          aspectRatio: "4:5",
+          slides: fallbackSlides.slice(0, count || 6)
+        };
+      }
+
+      // Auto-save project to PostgreSQL and Storage
+      const host = req.get("host") || "numtemacarrousel.coolify.dallico.com";
+      const protocol = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+      const serverUrl = `${protocol}://${host}`;
+      const projectId = `project-${Date.now()}`;
+
+      const fullProject = {
+        id: projectId,
+        name: carouselData.title || topic,
+        updatedAt: Date.now(),
+        config: {
+          id: projectId,
+          title: carouselData.title || topic,
+          accentColor: carouselData.accentColor || spec?.accentColor || "#80a880",
+          fontFamily: carouselData.fontFamily || spec?.fontFamily || "Outfit",
+          aspectRatio: (carouselData.aspectRatio as '1:1' | '4:5') || "4:5",
+          theme: "light",
+          branding: {
+            companyName: "Numtema Design",
+            companyWebsite: "numtema.design",
+            showBranding: true,
+            logoSize: 27,
+            fontSize: 13
+          },
+          slides: (carouselData.slides || []).map((s: any, idx: number) => ({
+            id: `slide-${idx}-${Date.now()}`,
+            headline: s.headline,
+            body: s.body,
+            visualPrompt: s.visualPrompt,
+            layout: s.layout || "center",
+            overlayOpacity: 0.8,
+            headlineSize: 34,
+            bodySize: 16,
+            contentPadding: 44,
+            textAlign: s.layout === "center" ? "center" : "left"
+          }))
+        },
+        chatHistory: [{ role: "user", text: topic }]
+      };
+
+      if (pgPool) {
+        try {
+          await pgPool.query(
+            "INSERT INTO numtema_projects (id, data, updated_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = $3;",
+            [fullProject.id, JSON.stringify(fullProject), fullProject.updatedAt]
+          );
+          console.log("[Numtema] Auto-saved new carousel to PostgreSQL:", fullProject.id);
+        } catch (dbErr) {
+          console.warn("[Numtema] PostgreSQL auto-save warning:", dbErr);
+        }
+      }
+
+      // Also append to local file cache
+      try {
+        const existingData = fs.existsSync(PROJECTS_FILE) ? JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8")) : [];
+        existingData.unshift(fullProject);
+        fs.writeFileSync(PROJECTS_FILE, JSON.stringify(existingData, null, 2));
+      } catch (fErr) {
+        console.warn("[Numtema] File save warning:", fErr);
+      }
+
+      const projectUrl = `${serverUrl}/?project=${projectId}`;
 
       return res.json({
-        title: cleanTopic || "Carrousel Numtema",
-        accentColor: spec?.accentColor || "#80a880",
-        fontFamily: spec?.fontFamily || "Outfit",
-        aspectRatio: "4:5",
-        slides: fallbackSlides.slice(0, count || 6)
+        id: projectId,
+        projectId,
+        title: fullProject.name,
+        accentColor: fullProject.config.accentColor,
+        fontFamily: fullProject.config.fontFamily,
+        aspectRatio: fullProject.config.aspectRatio,
+        slides: fullProject.config.slides,
+        projectUrl,
+        directLink: projectUrl,
+        viewUrl: projectUrl,
+        project: fullProject,
+        message: `Carrousel généré et enregistré avec succès dans le Studio Numtema ! Lien d'accès direct : ${projectUrl}`
       });
+    } catch (aiErr: any) {
+      console.warn("Unexpected generation error:", aiErr?.message || aiErr);
+      res.status(500).json({ error: aiErr?.message || "Failed to generate carousel contents." });
     }
   } catch (error: any) {
     console.error("Carousel generation fatal error:", error);

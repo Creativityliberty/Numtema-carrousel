@@ -82,7 +82,7 @@ export default function App() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Persistence
+  // Persistence & URL routing
   useEffect(() => {
     fetch("/api/projects")
       .then(res => res.json())
@@ -91,10 +91,29 @@ export default function App() {
             const normalized = data.map(normalizeProject);
             setProjects(normalized);
             localStorage.setItem('carouselfuzz_projects', JSON.stringify(normalized));
+
+            // Auto-open project if requested via URL query param (?project=ID or ?id=ID)
+            const params = new URLSearchParams(window.location.search);
+            const targetId = params.get('project') || params.get('id');
+            if (targetId) {
+              const matched = normalized.find(p => p.id === targetId);
+              if (matched) {
+                setCurrentProject(matched);
+                setChatHistory(matched.chatHistory || []);
+              }
+            }
          }
       })
       .catch(err => console.error("Error loading backend projects:", err));
   }, []);
+
+  useEffect(() => {
+    if (currentProject) {
+      window.history.replaceState(null, '', `?project=${currentProject.id}`);
+    } else {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [currentProject?.id]);
 
   useEffect(() => {
     localStorage.setItem('carouselfuzz_projects', JSON.stringify(projects));
