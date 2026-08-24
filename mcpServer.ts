@@ -423,6 +423,10 @@ ${spec ? `Adhere precisely to this Design DNA spec: ${JSON.stringify(spec)}` : "
       saveProjects(projects);
 
       return {
+        content: [{ type: "text", text: JSON.stringify({ success: true, project: updatedProject }) }]
+      };
+    }
+
     if (name === "delete_project") {
       const { projectId } = args as { projectId: string };
       const projects = loadProjects();
