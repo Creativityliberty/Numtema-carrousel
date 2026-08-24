@@ -443,7 +443,8 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("(.*)", (req, res) => {
+    // SPA fallback — app.use() bypasses path-to-regexp entirely (Express 5 safe)
+    app.use((req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
