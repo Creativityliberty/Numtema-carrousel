@@ -67,6 +67,71 @@ export interface GroundingSource {
   uri: string;
 }
 
+export interface SocialCaptions {
+  linkedin: string;
+  instagram: string;
+  twitter?: string;
+  hashtags: string[];
+}
+
+export interface PresetTheme {
+  id: string;
+  name: string;
+  accentColor: string;
+  fontFamily: string;
+  theme: ThemeMode;
+  overlayOpacity: number;
+  description: string;
+}
+
+export const PRESET_THEMES: PresetTheme[] = [
+  {
+    id: 'numtema-sage',
+    name: 'Numtema Luxury',
+    accentColor: '#80a880',
+    fontFamily: 'Outfit',
+    theme: 'light',
+    overlayOpacity: 0.8,
+    description: 'Vert sauge raffiné, minimalisme premium et élégance'
+  },
+  {
+    id: 'tech-cyber',
+    name: 'Tech & SaaS',
+    accentColor: '#10B981',
+    fontFamily: 'Space Grotesk',
+    theme: 'dark',
+    overlayOpacity: 0.85,
+    description: 'Émeraude électrique sur fond sombre, futuriste et percutant'
+  },
+  {
+    id: 'cobalt-b2b',
+    name: 'Cobalt Corporate',
+    accentColor: '#3B82F6',
+    fontFamily: 'Inter',
+    theme: 'light',
+    overlayOpacity: 0.75,
+    description: 'Bleu cobalt structuré, crédibilité et clarté B2B'
+  },
+  {
+    id: 'warm-editorial',
+    name: 'Warm Editorial',
+    accentColor: '#E07A5F',
+    fontFamily: 'Plus Jakarta Sans',
+    theme: 'light',
+    overlayOpacity: 0.8,
+    description: 'Terracotta chaleureux, style magazine et créatif'
+  },
+  {
+    id: 'neon-night',
+    name: 'Neon Violet',
+    accentColor: '#8B5CF6',
+    fontFamily: 'Bebas Neue',
+    theme: 'dark',
+    overlayOpacity: 0.9,
+    description: 'Violet vibrant sur noir profond, audacieux et viral'
+  }
+];
+
 export interface CarouselConfig {
   id: string;
   title: string;
@@ -79,6 +144,7 @@ export interface CarouselConfig {
   customSpec?: DesignSpec;
   groundingSources?: GroundingSource[];
   intent?: CarouselIntent;
+  captions?: SocialCaptions;
 }
 
 export interface Project {
@@ -95,3 +161,4 @@ export interface GenerationState {
   isAnalyzingDesign: boolean;
   progress: number;
 }
+

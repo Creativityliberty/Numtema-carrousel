@@ -1,6 +1,6 @@
 import React from 'react';
-import { Palette, Save, Share2 } from 'lucide-react';
-import { CarouselConfig } from '../../types';
+import { Palette, Save, Share2, Sparkles } from 'lucide-react';
+import { CarouselConfig, PRESET_THEMES } from '../../types';
 
 interface DesignSpecsSettingsProps {
   config: CarouselConfig;
@@ -16,11 +16,52 @@ export const DesignSpecsSettings: React.FC<DesignSpecsSettingsProps> = ({
   onApplyToAll,
 }) => {
   const isLight = config.theme === 'light';
+
+  const applyPreset = (preset: typeof PRESET_THEMES[0]) => {
+    updateConfig({
+      accentColor: preset.accentColor,
+      fontFamily: preset.fontFamily,
+      theme: preset.theme
+    });
+  };
+
   return (
     <section className="space-y-6">
-      <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 flex items-center gap-2">
-         <Palette size={14} /> Design Specs
-      </h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 flex items-center gap-2">
+           <Palette size={14} /> Design Specs
+        </h3>
+      </div>
+
+      {/* 1-Click Preset Themes */}
+      <div className="space-y-2">
+        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1">
+          <Sparkles size={11} className="text-teal-500" /> Thèmes Prédéfinis
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {PRESET_THEMES.map(preset => {
+            const isSelected = config.accentColor.toLowerCase() === preset.accentColor.toLowerCase() && config.fontFamily === preset.fontFamily && config.theme === preset.theme;
+            return (
+              <button
+                key={preset.id}
+                onClick={() => applyPreset(preset)}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                  isSelected 
+                    ? 'border-teal-500 bg-teal-500/10 shadow-sm' 
+                    : isLight ? 'bg-slate-100/70 border-slate-200 hover:border-slate-300' : 'bg-white/5 border-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: preset.accentColor }} />
+                  <span className="text-[10px] font-black tracking-tight truncate">{preset.name}</span>
+                </div>
+                <span className="text-[8px] text-slate-400 font-medium truncate">{preset.fontFamily} • {preset.theme === 'dark' ? 'Sombre' : 'Clair'}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
            <div className="space-y-2">

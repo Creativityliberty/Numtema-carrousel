@@ -48,8 +48,8 @@ app.get("/openapi.json", (req, res) => {
     openapi: "3.1.0",
     info: {
       title: "Numtema Carousel Studio API",
-      description: "API complète de création, batch generation, retouche et consultation de carrousels pour réseaux sociaux.",
-      version: "1.2.0"
+      description: "API complète de création, batch generation, légendes réseaux sociaux, traduction et consultation de carrousels.",
+      version: "1.3.0"
     },
     servers: [{ url: serverUrl }],
     paths: {
@@ -75,33 +75,21 @@ app.get("/openapi.json", (req, res) => {
       },
       "/api/projects/{id}": {
         get: {
-          summary: "Récupérer un carrousel spécifique par son identifiant",
+          summary: "Récupérer un carrousel spécifique par son ID",
           operationId: "getProjectById",
           parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "L'identifiant du projet (ex: project-178759...)"
-            }
+            { name: "id", in: "path", required: true, schema: { type: "string" }, description: "ID du projet" }
           ],
           responses: {
-            "200": { description: "Détails complets du carrousel" },
-            "404": { description: "Projet non trouvé" }
+            "200": { description: "Détails du projet" },
+            "404": { description: "Projet introuvable" }
           }
         },
         delete: {
-          summary: "Supprimer un carrousel existant par son identifiant",
+          summary: "Supprimer un carrousel par son ID",
           operationId: "deleteProject",
           parameters: [
-            {
-              name: "id",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "L'identifiant du projet à supprimer"
-            }
+            { name: "id", in: "path", required: true, schema: { type: "string" }, description: "ID du projet à supprimer" }
           ],
           responses: { "200": { description: "Projet supprimé" } }
         }
@@ -258,6 +246,84 @@ app.get("/openapi.json", (req, res) => {
                           }
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/generate-caption": {
+        post: {
+          summary: "Générer les textes d'accompagnement de post (LinkedIn & Instagram Captions + Hashtags)",
+          description: "Rédige automatiquement un post LinkedIn percutant, une légende Instagram engageante et des hashtags ciblés pour accompagner la publication du carrousel.",
+          operationId: "generateSocialCaptions",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string", description: "Titre du carrousel" },
+                    slides: { type: "array", items: { type: "object" } },
+                    targetAudience: { type: "string", description: "Public cible" },
+                    callToAction: { type: "string", description: "Appel à l'action" }
+                  },
+                  required: ["title"]
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Textes de post générés.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      linkedin: { type: "string" },
+                      instagram: { type: "string" },
+                      hashtags: { type: "array", items: { type: "string" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/translate-carousel": {
+        post: {
+          summary: "Traduire un carrousel dans une autre langue en 1 clic",
+          description: "Traduit tous les titres et textes d'un carrousel en anglais, espagnol, allemand, italien ou français tout en préservant scrupuleusement la mise en forme et les balises d'accentuation {mots-clés}.",
+          operationId: "translateCarousel",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    slides: { type: "array", items: { type: "object" } },
+                    targetLanguage: { type: "string", enum: ["en", "es", "de", "fr", "it", "pt"], description: "Code ISO de la langue cible" }
+                  },
+                  required: ["slides", "targetLanguage"]
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Slides traduits.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      slides: { type: "array", items: { type: "object" } }
                     }
                   }
                 }
@@ -857,6 +923,13 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
     }
   }
 
+  const cleanTitle = (carouselData.title || topic).replace(/[{}"]/g, "");
+  const defaultCaptions = {
+    linkedin: `🚀 ${cleanTitle}\n\nLa plupart des entreprises perdent des opportunités chaque jour à cause d'une présence digitale négligée.\n\n👉 Faites défiler ce carrousel pour découvrir les clés indispensables.\n\nQuel point résonne le plus avec vous ? Dites-le moi en commentaire ! 👇`,
+    instagram: `✨ ${cleanTitle}\n\nSwipe pour découvrir toutes les clés ! 👉\n\nEnregistre ce post pour plus tard 📌`,
+    hashtags: ["#NumtemaDesign", "#Carrousel", "#SocialMedia", "#Branding", "#Growth"]
+  };
+
   const fullProject = {
     id: projectId,
     name: carouselData.title || topic,
@@ -875,7 +948,8 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
         logoSize: 27,
         fontSize: 13
       },
-      slides: processedSlides
+      slides: processedSlides,
+      captions: defaultCaptions
     },
     chatHistory: [{ role: "user", text: topic }]
   };
@@ -895,6 +969,7 @@ ${spec ? `Adhere precisely to this Design DNA spec constraint: ${JSON.stringify(
     aspectRatio: fullProject.config.aspectRatio,
     slides: fullProject.config.slides,
     slidesCount: fullProject.config.slides.length,
+    captions: defaultCaptions,
     projectUrl,
     editUrl,
     downloadUrl,
@@ -965,6 +1040,139 @@ app.post("/api/generate-batch", async (req, res) => {
   } catch (error: any) {
     console.error("Batch generation error:", error);
     res.status(500).json({ error: error.message || "Failed to generate batch carousels." });
+  }
+});
+
+/**
+ * Social Captions Generator endpoint (LinkedIn post, Instagram caption, hashtags)
+ */
+app.post("/api/generate-caption", async (req, res) => {
+  try {
+    const { title, slides = [], targetAudience, callToAction } = req.body;
+    const ai = getAI();
+
+    const slideSummaries = slides.map((s: any, idx: number) => `Slide ${idx+1}: ${s.headline} - ${s.body}`).join("\n");
+    const prompt = `You are an elite LinkedIn & Instagram copywriter for Numtema Design.
+Given this carousel:
+Title: "${title}"
+Target Audience: "${targetAudience || 'Entrepreneurs, créateurs, professionnels B2B'}"
+CTA: "${callToAction || 'Commentez pour recevoir nos conseils personnalisés'}"
+Slides:
+${slideSummaries}
+
+Generate two ready-to-publish social media captions:
+1. "linkedin": High conversion LinkedIn post copy (powerful hook, spaced paragraphs, key bullet points, strong CTA).
+2. "instagram": Punchy Instagram caption with relevant emojis.
+3. "hashtags": Array of 5-8 trending, relevant hashtags (e.g. ["#Design", "#Branding", "#Growth"]).
+
+Return STRICTLY JSON matching schema.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: "You are an award-winning social media copywriter. Output strictly JSON.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            linkedin: { type: Type.STRING },
+            instagram: { type: Type.STRING },
+            hashtags: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["linkedin", "instagram", "hashtags"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (text) {
+      return res.json(JSON.parse(text.trim()));
+    }
+    throw new Error("Empty caption response");
+  } catch (e: any) {
+    console.warn("Caption generation fallback:", e?.message);
+    const cleanTitle = (req.body.title || "Votre présence digitale").replace(/[{}"]/g, "");
+    res.json({
+      linkedin: `🚀 ${cleanTitle}\n\nLa plupart des entreprises perdent des clients chaque jour à cause d'une présence digitale négligée.\n\n👉 Faites défiler ce carrousel pour découvrir les clés indispensables.\n\nQuel point résonne le plus avec vous ? Dites-le moi en commentaire ! 👇`,
+      instagram: `✨ ${cleanTitle}\n\nSwipe pour découvrir toutes les clés ! 👉\n\nEnregistre ce post pour plus tard 📌`,
+      hashtags: ["#NumtemaDesign", "#Carrousel", "#SocialMedia", "#Branding", "#Growth"]
+    });
+  }
+});
+
+/**
+ * 1-Click Multilingual Carousel Translator endpoint
+ */
+app.post("/api/translate-carousel", async (req, res) => {
+  try {
+    const { slides = [], targetLanguage = "en" } = req.body;
+    const ai = getAI();
+
+    const langNames: Record<string, string> = {
+      en: "English",
+      es: "Spanish",
+      de: "German",
+      fr: "French",
+      it: "Italian",
+      pt: "Portuguese"
+    };
+    const targetLangName = langNames[targetLanguage] || targetLanguage;
+
+    const prompt = `You are an expert multilingual marketing copywriter.
+Translate each slide headline and body into ${targetLangName}.
+CRITICAL RULE: Preserve all {curly braces} around emphasized keywords exactly where appropriate.
+
+Slides to translate:
+${JSON.stringify(slides.map((s: any) => ({ id: s.id, headline: s.headline, body: s.body })))}
+
+Output strictly JSON with an array of translated slides having { id, headline, body }.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: "You are an expert translation engine. Output strictly JSON.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            translatedSlides: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  headline: { type: Type.STRING },
+                  body: { type: Type.STRING }
+                },
+                required: ["headline", "body"]
+              }
+            }
+          },
+          required: ["translatedSlides"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (text) {
+      const parsed = JSON.parse(text.trim());
+      const translatedMap = new Map((parsed.translatedSlides || []).map((t: any) => [t.id, t]));
+      const newSlides = slides.map((s: any) => {
+        const trans: any = translatedMap.get(s.id);
+        return {
+          ...s,
+          headline: trans?.headline || s.headline,
+          body: trans?.body || s.body
+        };
+      });
+      return res.json({ slides: newSlides });
+    }
+    throw new Error("Translation failed");
+  } catch (e: any) {
+    console.error("Translation error:", e);
+    res.status(500).json({ error: e?.message || "Translation failed" });
   }
 });
 

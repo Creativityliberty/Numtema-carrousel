@@ -135,6 +135,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "generate_caption",
+        description: "Generate ready-to-publish social media captions (LinkedIn post, Instagram caption, hashtags) for a carousel.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Title of the carousel." },
+            slides: { type: "array", items: { type: "object" }, description: "Array of slides." },
+            targetAudience: { type: "string", description: "Target audience." },
+            callToAction: { type: "string", description: "Call to action." }
+          },
+          required: ["title"]
+        }
+      },
+      {
+        name: "translate_carousel",
+        description: "Translate all slides of a carousel into a target language (en, es, de, fr, it, pt) while preserving emphasis tags.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            slides: { type: "array", items: { type: "object" }, description: "Array of slides to translate." },
+            targetLanguage: { type: "string", enum: ["en", "es", "de", "fr", "it", "pt"], description: "Target ISO language code." }
+          },
+          required: ["slides", "targetLanguage"]
+        }
+      },
+      {
+        name: "delete_project",
+        description: "Delete a saved carousel project by ID.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            projectId: { type: "string", description: "The ID of the project to delete." }
+          },
+          required: ["projectId"]
+        }
+      },
+      {
         name: "list_projects",
         description: "Retrieve a list of all saved carousel projects, including their names, IDs, and slide counts.",
         inputSchema: { type: "object", properties: {} }
@@ -386,7 +423,46 @@ ${spec ? `Adhere precisely to this Design DNA spec: ${JSON.stringify(spec)}` : "
       saveProjects(projects);
 
       return {
-        content: [{ type: "text", text: JSON.stringify({ success: true, project: updatedProject }) }]
+    if (name === "delete_project") {
+      const { projectId } = args as { projectId: string };
+      const projects = loadProjects();
+      const filtered = projects.filter((p: any) => p.id !== projectId);
+      saveProjects(filtered);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ success: true, message: `Project ${projectId} deleted.` }) }]
+      };
+    }
+
+    if (name === "generate_caption") {
+      const { title, slides = [], targetAudience, callToAction } = args as any;
+      const slideSummaries = slides.map((s: any, idx: number) => `Slide ${idx+1}: ${s.headline} - ${s.body}`).join("\n");
+      const prompt = `You are a social media copywriter. Generate LinkedIn and Instagram post copy for this carousel: Title: "${title}". Target: "${targetAudience || 'B2B'}". CTA: "${callToAction || ''}". Slides:\n${slideSummaries}. Return JSON with linkedin, instagram, hashtags.`;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+      return {
+        content: [{ type: "text", text: response.text || "{}" }]
+      };
+    }
+
+    if (name === "translate_carousel") {
+      const { slides = [], targetLanguage = "en" } = args as any;
+      const prompt = `Translate each slide headline and body into language ${targetLanguage}, preserving curly braces {tags}. Slides: ${JSON.stringify(slides)}. Return JSON with array of translatedSlides.`;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+      return {
+        content: [{ type: "text", text: response.text || "{}" }]
       };
     }
 
