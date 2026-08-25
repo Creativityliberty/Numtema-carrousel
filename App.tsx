@@ -6,7 +6,7 @@ import {
   MousePointer2, Layout as LayoutIcon, AlignLeft, AlignCenter, AlignRight,
   Building2, Send, RotateCw, Copy, Check, Grid, Briefcase, History,
   ArrowRight, Layers, Palette, Type as TypeIcon, Link as LinkIcon, Globe,
-  FileText, MessageSquare, ExternalLink
+  FileText, MessageSquare, ExternalLink, Play, Film, Flame, BarChart2, Radio
 } from 'lucide-react';
 import { CarouselConfig, Slide, GenerationState, LayoutType, TextAlign, ChatMessage, Project, DesignSpec, DEFAULT_BRANDING, CarouselIntent, SocialCaptions } from './types';
 import { generateCarouselContent, generateSlideImage, analyzeDesignADN, editSlideWithAI } from './geminiService';
@@ -73,6 +73,8 @@ export default function App() {
   const [isEditingSlide, setIsEditingSlide] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingVideo, setIsExportingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
   const [isArchitectFlow, setIsArchitectFlow] = useState(false);
   const [architectImages, setArchitectImages] = useState<string[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -84,6 +86,27 @@ export default function App() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [isCopiedText, setIsCopiedText] = useState<string | null>(null);
   const [captions, setCaptions] = useState<SocialCaptions | null>(null);
+
+  // Viral Auditor state
+  const [isViralModalOpen, setIsViralModalOpen] = useState(false);
+  const [viralAudit, setViralAudit] = useState<any>(null);
+  const [isAuditingViral, setIsAuditingViral] = useState(false);
+
+  // Repurposer state
+  const [isRepurposeModalOpen, setIsRepurposeModalOpen] = useState(false);
+  const [repurposeForm, setRepurposeForm] = useState({
+    sourceType: 'url' as 'url' | 'youtube' | 'text',
+    sourceValue: '',
+    targetAudience: 'Fondateurs & Créateurs B2B',
+    tone: 'educational' as any
+  });
+  const [isRepurposing, setIsRepurposing] = useState(false);
+
+  // Webhook / Publish state
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('numtema_webhook_url') || '');
+  const [isPublishingWebhook, setIsPublishingWebhook] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
 
   const [genState, setGenState] = useState<GenerationState>({
     isGeneratingContent: false,
@@ -267,6 +290,205 @@ export default function App() {
       setChatHistory(prev => [...prev, { role: 'model', text: `Erreur : ${errMsg}` }]);
     } finally {
       setGenState(p => ({ ...p, isGeneratingContent: false }));
+    }
+  };
+
+  // Repurposer submission
+  const handleRepurposeSubmit = async () => {
+    if (!repurposeForm.sourceValue.trim()) return;
+    setIsRepurposing(true);
+    try {
+      const res = await fetch("/api/repurpose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(repurposeForm)
+      });
+      const data = await res.json();
+      if (data.project) {
+        setProjects(prev => [normalizeProject(data.project), ...prev]);
+        setCurrentProject(normalizeProject(data.project));
+        setIsRepurposeModalOpen(false);
+      } else {
+        throw new Error(data.error || "Échec de l'extraction");
+      }
+    } catch (e: any) {
+      alert("Erreur repurposer : " + (e?.message || e));
+    } finally {
+      setIsRepurposing(false);
+    }
+  };
+
+  // Viral Score Auditor
+  const handleRunViralAudit = async () => {
+    if (!currentProject) return;
+    setIsAuditingViral(true);
+    setIsViralModalOpen(true);
+    try {
+      const res = await fetch("/api/audit-viral", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: currentProject.config.title,
+          slides: currentProject.config.slides
+        })
+      });
+      const data = await res.json();
+      setViralAudit(data);
+    } catch (e: any) {
+      alert("Erreur audit viral : " + (e?.message || e));
+    } finally {
+      setIsAuditingViral(false);
+    }
+  };
+
+  const handleApplyHookVariation = (newHeadline: string) => {
+    if (!currentProject) return;
+    const slides = [...currentProject.config.slides];
+    slides[0] = { ...slides[0], headline: newHeadline };
+    setCurrentProject({
+      ...currentProject,
+      config: { ...currentProject.config, title: newHeadline.replace(/[{}]/g, ''), slides }
+    });
+    alert("Accroche mise à jour avec succès sur le premier slide !");
+  };
+
+  // Webhook Dispatcher
+  const handleDispatchWebhook = async () => {
+    if (!currentProject || !webhookUrl.trim()) return;
+    setIsPublishingWebhook(true);
+    setPublishStatus(null);
+    localStorage.setItem('numtema_webhook_url', webhookUrl);
+    try {
+      const res = await fetch("/api/publish-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl,
+          project: currentProject,
+          platform: "linkedin"
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPublishStatus("✅ Carrousel & Captions transmis avec succès au webhook !");
+      } else {
+        setPublishStatus(`⚠️ Statut webhook : ${data.statusCode} (${data.message})`);
+      }
+    } catch (e: any) {
+      setPublishStatus("❌ Erreur : " + (e?.message || e));
+    } finally {
+      setIsPublishingWebhook(false);
+    }
+  };
+
+  // Animated Motion Video MP4 Export
+  const handleExportVideo = async () => {
+    if (!currentProject || isExportingVideo) return;
+    setIsExportingVideo(true);
+    setVideoProgress(0);
+
+    try {
+      const slides = currentProject.config.slides;
+      const isSquare = currentProject.config.aspectRatio === '1:1';
+      const canvasWidth = 1080;
+      const canvasHeight = isSquare ? 1080 : 1350;
+
+      // Capture all slide images first
+      const slideImages: HTMLImageElement[] = [];
+      const originalIdx = currentIdx;
+
+      for (let i = 0; i < slides.length; i++) {
+        setCurrentIdx(i);
+        await new Promise(r => setTimeout(r, 500));
+        const el = document.getElementById(`capture-${slides[i].id}`);
+        if (el) {
+          const dataUrl = await htmlToImage.toPng(el, { quality: 1, pixelRatio: 1.5 });
+          const img = new Image();
+          await new Promise<void>(resolve => {
+            img.onload = () => resolve();
+            img.src = dataUrl;
+          });
+          slideImages.push(img);
+        }
+        setVideoProgress(Math.round(((i + 1) / (slides.length * 2)) * 100));
+      }
+      setCurrentIdx(originalIdx);
+
+      // Create offscreen video canvas
+      const videoCanvas = document.createElement('canvas');
+      videoCanvas.width = canvasWidth;
+      videoCanvas.height = canvasHeight;
+      const ctx = videoCanvas.getContext('2d');
+      if (!ctx) throw new Error("Canvas context error");
+
+      const stream = videoCanvas.captureStream(30);
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.start();
+
+      const slideDurationMs = 3000;
+      const transitionDurationMs = 600;
+      const totalSlides = slideImages.length;
+      const totalDurationMs = totalSlides * slideDurationMs;
+      const startTime = performance.now();
+
+      await new Promise<void>((resolve) => {
+        const drawFrame = (now: number) => {
+          const elapsed = now - startTime;
+          if (elapsed >= totalDurationMs) {
+            recorder.stop();
+            resolve();
+            return;
+          }
+
+          const currentSlideIdx = Math.min(Math.floor(elapsed / slideDurationMs), totalSlides - 1);
+          const slideElapsed = elapsed % slideDurationMs;
+          const nextSlideIdx = (currentSlideIdx + 1) % totalSlides;
+
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+          // Draw current slide image
+          const currentImg = slideImages[currentSlideIdx];
+          ctx.drawImage(currentImg, 0, 0, canvasWidth, canvasHeight);
+
+          // Draw transition to next slide if near the end of slide
+          if (slideElapsed > slideDurationMs - transitionDurationMs && currentSlideIdx < totalSlides - 1) {
+            const progress = (slideElapsed - (slideDurationMs - transitionDurationMs)) / transitionDurationMs;
+            ctx.save();
+            ctx.globalAlpha = progress;
+            const nextImg = slideImages[nextSlideIdx];
+            ctx.drawImage(nextImg, 0, 0, canvasWidth, canvasHeight);
+            ctx.restore();
+          }
+
+          // Top progress bar
+          const overallProgress = elapsed / totalDurationMs;
+          ctx.fillStyle = currentProject.config.accentColor || "#80a880";
+          ctx.fillRect(0, 0, canvasWidth * overallProgress, 14);
+
+          setVideoProgress(50 + Math.round(overallProgress * 50));
+          requestAnimationFrame(drawFrame);
+        };
+        requestAnimationFrame(drawFrame);
+      });
+
+      recorder.onstop = () => {
+        const videoBlob = new Blob(chunks, { type: 'video/webm' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(videoBlob);
+        const cleanTitle = (currentProject.config.title || "Carrousel_Numtema").replace(/[^a-zA-Z0-9_-]/g, "_");
+        a.download = `${cleanTitle}_Motion_Video.webm`;
+        a.click();
+        setIsExportingVideo(false);
+      };
+    } catch (e: any) {
+      alert("Erreur export vidéo : " + (e?.message || e));
+      setIsExportingVideo(false);
     }
   };
 
@@ -512,7 +734,6 @@ export default function App() {
   if (currentProject && isPreviewMode) {
     return (
       <div className={`min-h-screen ${isLight ? 'bg-slate-950 text-white' : 'bg-black text-white'} flex flex-col items-center justify-between p-6 md:p-10 select-none`}>
-        {/* Preview Top bar */}
         <header className="w-full max-w-4xl flex items-center justify-between z-50">
           <div className="flex items-center gap-3">
             <span className="w-3 h-3 rounded-full bg-teal-500 animate-ping" />
@@ -531,13 +752,11 @@ export default function App() {
           </div>
         </header>
 
-        {/* Slide Viewer */}
         <div className="relative flex flex-col items-center my-auto">
           <div className="shadow-[0_50px_100px_-20px_rgba(0,0,0,0.9)] rounded-[2.5rem] overflow-hidden border border-white/10">
             <SlidePreview slide={currentProject.config.slides[currentIdx]} config={currentProject.config} />
           </div>
 
-          {/* Navigation Controls */}
           <div className="flex items-center gap-4 mt-6 bg-white/10 backdrop-blur-xl px-4 py-2 rounded-full border border-white/15 shadow-2xl">
             <button 
               onClick={() => setCurrentIdx(p => Math.max(0, p-1))}
@@ -557,7 +776,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Footer Brand */}
         <footer className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
           Conçu avec Numtema Design • numtema.design
         </footer>
@@ -573,6 +791,7 @@ export default function App() {
           onSelect={p => { setCurrentProject(p); setChatHistory(p.chatHistory || []); }}
           onDelete={id => setProjects(prev => prev.filter(p => p.id !== id))}
           onCreateNew={handleCreateNew}
+          onOpenRepurposer={() => setIsRepurposeModalOpen(true)}
         />
       ) : (
         <div className="flex h-screen overflow-hidden">
@@ -583,9 +802,14 @@ export default function App() {
                 <button onClick={() => setCurrentProject(null)} className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-400 hover:text-teal-500 transition-colors cursor-pointer">
                   <ChevronLeft size={16} /> Projets
                 </button>
-                <button onClick={() => handleCreateNew('flash')} className="p-2 rounded-xl bg-teal-500/10 text-teal-500 hover:bg-teal-500 hover:text-white transition-all cursor-pointer">
-                  <Plus size={16} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setIsRepurposeModalOpen(true)} className="p-2 rounded-xl bg-teal-500/10 text-teal-500 hover:bg-teal-500 hover:text-white transition-all cursor-pointer" title="Repurposer URL / Doc">
+                    <Cpu size={16} />
+                  </button>
+                  <button onClick={() => handleCreateNew('flash')} className="p-2 rounded-xl bg-teal-500/10 text-teal-500 hover:bg-teal-500 hover:text-white transition-all cursor-pointer" title="Nouveau carrousel">
+                    <Plus size={16} />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -609,7 +833,7 @@ export default function App() {
                             setCurrentProject({ ...currentProject, config: { ...currentProject.config, slides: newSlides } });
                             setCurrentIdx(prev => Math.min(prev, newSlides.length - 1));
                           }}
-                          className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                          className="text-slate-400 hover:text-red-500 transition-colors p-1 cursor-pointer"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -660,14 +884,22 @@ export default function App() {
               </div>
 
               {/* Action Buttons Toolbar */}
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Viral Score & Hook Optimizer */}
+                <button
+                  onClick={handleRunViralAudit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500 hover:text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  <Flame size={14} /> Audit Viral
+                </button>
+
                 {/* 1-Click Translation Selector */}
                 <div className="relative">
                   <select
                     onChange={(e) => e.target.value && handleTranslate(e.target.value)}
                     disabled={isTranslating}
                     defaultValue=""
-                    className={`text-xs font-bold px-3 py-2 rounded-xl border outline-none cursor-pointer transition-all ${
+                    className={`text-xs font-bold px-3 py-1.5 rounded-xl border outline-none cursor-pointer transition-all ${
                       isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-white/5 border-white/10 text-white'
                     }`}
                   >
@@ -682,31 +914,32 @@ export default function App() {
 
                 {/* Social Captions Drawer Button */}
                 <Button variant="glass" size="sm" onClick={handleOpenCaptions}>
-                  <MessageSquare size={15} /> Captions Post
+                  <MessageSquare size={14} /> Captions Post
+                </Button>
+
+                {/* Webhook Auto-Publish */}
+                <Button variant="glass" size="sm" onClick={() => setIsPublishModalOpen(true)}>
+                  <Radio size={14} /> Webhook Publish
                 </Button>
 
                 {/* Public Preview Mode Button */}
                 <Button variant="glass" size="sm" onClick={() => setIsPreviewMode(true)}>
-                  <ExternalLink size={15} /> Aperçu Client
+                  <ExternalLink size={14} /> Aperçu
                 </Button>
 
-                {/* Build Images with AI */}
-                <Button variant="glass" size="sm" onClick={handleBuildArt} disabled={genState.isGeneratingImages}>
-                  {genState.isGeneratingImages ? (
-                    <span className="flex items-center gap-1.5 text-teal-600 dark:text-teal-400"><Loader2 className="animate-spin" size={13} /> {genState.progress}%</span>
-                  ) : (
-                    <span className="flex items-center gap-1.5"><ImageIcon size={15} /> Images IA</span>
-                  )}
+                {/* Motion Video Export Button */}
+                <Button variant="glass" size="sm" onClick={handleExportVideo} disabled={isExportingVideo}>
+                  {isExportingVideo ? <span className="flex items-center gap-1"><Loader2 className="animate-spin" size={13} /> {videoProgress}%</span> : <span className="flex items-center gap-1"><Film size={14} /> Vidéo MP4</span>}
                 </Button>
 
                 {/* PDF LinkedIn Export Button */}
                 <Button id="btn-export-pdf" variant="neon" size="sm" onClick={handleExportPdf} disabled={isExportingPdf}>
-                  {isExportingPdf ? <Loader2 className="animate-spin" size={13} /> : <FileText size={15} />} PDF LinkedIn
+                  {isExportingPdf ? <Loader2 className="animate-spin" size={13} /> : <FileText size={14} />} PDF LinkedIn
                 </Button>
 
                 {/* ZIP Images Export Button */}
                 <Button id="btn-export-pack" variant="white" size="sm" onClick={handleExport} disabled={isExporting}>
-                  {isExporting ? <Loader2 className="animate-spin" size={13} /> : <Download size={15} />} Pack ZIP
+                  {isExporting ? <Loader2 className="animate-spin" size={13} /> : <Download size={14} />} Pack ZIP
                 </Button>
               </div>
             </header>
@@ -826,7 +1059,6 @@ export default function App() {
                         placeholder="Décrivez l'image souhaitée ou cliquez ✨ Prompt IA..."
                       />
                       
-                      {/* Action buttons for image */}
                       <div className="flex items-center gap-2 pt-1">
                         <button
                           onClick={handleGenerateSingleImage}
@@ -903,6 +1135,238 @@ export default function App() {
         </div>
       )}
 
+      {/* Repurposer Modal */}
+      {isRepurposeModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
+          <div className={`w-full max-w-xl ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white border border-white/10'} rounded-3xl p-8 shadow-2xl space-y-6 relative`}>
+            <div className="flex items-center justify-between border-b pb-4 border-slate-200 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <Cpu className="text-teal-500" size={22} />
+                <h3 className="text-base font-black uppercase tracking-wider">Repurposer Multi-Sources</h3>
+              </div>
+              <button onClick={() => setIsRepurposeModalOpen(false)} className="p-2 text-slate-400 hover:text-white rounded-full transition-colors cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Type de source</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'url', label: '🌐 Article / URL' },
+                    { id: 'youtube', label: '📺 Vidéo YouTube' },
+                    { id: 'text', label: '📄 Texte / Doc' }
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setRepurposeForm({ ...repurposeForm, sourceType: t.id as any })}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        repurposeForm.sourceType === t.id
+                          ? 'border-teal-500 bg-teal-500/10 text-teal-600 dark:text-teal-400'
+                          : isLight ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-white/5 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  {repurposeForm.sourceType === 'url' ? 'Lien de l\'article' : repurposeForm.sourceType === 'youtube' ? 'Lien de la vidéo YouTube' : 'Contenu du document'}
+                </label>
+                {repurposeForm.sourceType === 'text' ? (
+                  <textarea
+                    rows={5}
+                    value={repurposeForm.sourceValue}
+                    onChange={e => setRepurposeForm({ ...repurposeForm, sourceValue: e.target.value })}
+                    placeholder="Collez ici votre texte, extrait de document ou notes..."
+                    className={`w-full p-4 rounded-2xl border text-xs outline-none ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'}`}
+                  />
+                ) : (
+                  <input
+                    type="url"
+                    value={repurposeForm.sourceValue}
+                    onChange={e => setRepurposeForm({ ...repurposeForm, sourceValue: e.target.value })}
+                    placeholder={repurposeForm.sourceType === 'url' ? 'https://mon-blog.com/mon-article' : 'https://youtube.com/watch?v=...'}
+                    className={`w-full p-3.5 rounded-2xl border text-xs font-bold outline-none ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'}`}
+                  />
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Public cible</label>
+                  <input
+                    type="text"
+                    value={repurposeForm.targetAudience}
+                    onChange={e => setRepurposeForm({ ...repurposeForm, targetAudience: e.target.value })}
+                    className={`w-full p-3 rounded-xl border text-xs font-bold outline-none ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tonalité</label>
+                  <select
+                    value={repurposeForm.tone}
+                    onChange={e => setRepurposeForm({ ...repurposeForm, tone: e.target.value as any })}
+                    className={`w-full p-3 rounded-xl border text-xs font-bold outline-none ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'}`}
+                  >
+                    <option value="educational">Éducatif & Actionnable</option>
+                    <option value="storytelling">Storytelling captivant</option>
+                    <option value="provocative">Contre-intuitif / Débat</option>
+                    <option value="checklist">Checklist & Outils</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={handleRepurposeSubmit}
+                disabled={isRepurposing || !repurposeForm.sourceValue.trim()}
+                className="w-full py-3.5 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isRepurposing ? (
+                  <><Loader2 className="animate-spin" size={16} /> Extraction & Génération du carrousel...</>
+                ) : (
+                  <><Sparkles size={16} /> Extraire & Créer le Carrousel</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Viral Score Auditor Modal */}
+      {isViralModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
+          <div className={`w-full max-w-2xl ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white border border-white/10'} rounded-3xl p-8 shadow-2xl space-y-6 relative max-h-[85vh] overflow-y-auto`}>
+            <div className="flex items-center justify-between border-b pb-4 border-slate-200 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <Flame className="text-amber-500" size={22} />
+                <h3 className="text-base font-black uppercase tracking-wider">Viral Score & Hook Optimizer</h3>
+              </div>
+              <button onClick={() => setIsViralModalOpen(false)} className="p-2 text-slate-400 hover:text-white rounded-full transition-colors cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            {isAuditingViral ? (
+              <div className="py-16 flex flex-col items-center justify-center gap-4">
+                <Loader2 className="animate-spin text-amber-500" size={36} />
+                <span className="text-xs font-bold text-slate-400">Analyse de rétention algorithmique et calcul du score...</span>
+              </div>
+            ) : viralAudit ? (
+              <div className="space-y-6">
+                {/* Score Header */}
+                <div className="flex items-center justify-between p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">Potentiel Viral Global</span>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1">{viralAudit.verdict}</p>
+                  </div>
+                  <div className="text-4xl font-black text-amber-500 flex items-baseline">
+                    {viralAudit.globalScore}<span className="text-sm text-slate-400">/100</span>
+                  </div>
+                </div>
+
+                {/* Breakdown bars */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Hook (Titre)', score: viralAudit.breakdown?.hookStrength, max: 35 },
+                    { label: 'Lisibilité', score: viralAudit.breakdown?.readability, max: 25 },
+                    { label: 'Rétention Swipe', score: viralAudit.breakdown?.swipeRetention, max: 25 },
+                    { label: 'Puissance CTA', score: viralAudit.breakdown?.ctaPower, max: 15 }
+                  ].map((b, idx) => (
+                    <div key={idx} className={`p-3.5 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/5 border-white/10'}`}>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">{b.label}</span>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <span className="text-base font-black">{b.score}</span>
+                        <span className="text-[10px] text-slate-400">/{b.max}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Alternative Hook Variations A/B/C */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-teal-600 dark:text-teal-400 flex items-center gap-1.5">
+                    <Sparkles size={12} /> 3 Variantes de Titre Optimisées (A/B/C)
+                  </label>
+                  <div className="space-y-2">
+                    {(viralAudit.hookVariations || []).map((v: any, idx: number) => (
+                      <div key={idx} className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${isLight ? 'bg-slate-50 border-slate-200 hover:border-teal-500' : 'bg-white/5 border-white/10 hover:border-teal-500'} transition-all`}>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-500 uppercase">{v.type}</span>
+                            <span className="text-[9px] font-black text-emerald-500">{v.expectedCtr} de clics prévus</span>
+                          </div>
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{v.headline}</p>
+                        </div>
+                        <button
+                          onClick={() => handleApplyHookVariation(v.headline)}
+                          className="shrink-0 px-3 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+                        >
+                          Appliquer
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Publish & Webhook Modal */}
+      {isPublishModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
+          <div className={`w-full max-w-lg ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white border border-white/10'} rounded-3xl p-8 shadow-2xl space-y-6 relative`}>
+            <div className="flex items-center justify-between border-b pb-4 border-slate-200 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <Radio className="text-teal-500" size={22} />
+                <h3 className="text-base font-black uppercase tracking-wider">Publication Webhook</h3>
+              </div>
+              <button onClick={() => setIsPublishModalOpen(false)} className="p-2 text-slate-400 hover:text-white rounded-full transition-colors cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Connectez votre scénario <strong>Make.com, Zapier, n8n ou Buffer</strong>. En 1 clic, le carrousel complet (PDF LinkedIn, Pack ZIP, Légende et Hashtags) sera transmis automatiquement !
+              </p>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">URL du Webhook</label>
+                <input
+                  type="url"
+                  value={webhookUrl}
+                  onChange={e => setWebhookUrl(e.target.value)}
+                  placeholder="https://hook.eu1.make.com/..."
+                  className={`w-full p-3.5 rounded-2xl border text-xs font-bold outline-none ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'}`}
+                />
+              </div>
+
+              {publishStatus && (
+                <div className={`p-3.5 rounded-xl text-xs font-bold ${publishStatus.startsWith('✅') ? 'bg-teal-500/10 text-teal-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                  {publishStatus}
+                </div>
+              )}
+
+              <button
+                onClick={handleDispatchWebhook}
+                disabled={isPublishingWebhook || !webhookUrl.trim()}
+                className="w-full py-3.5 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isPublishingWebhook ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                Déclencher la publication
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Social Post Captions Modal */}
       {isCaptionModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
@@ -919,7 +1383,6 @@ export default function App() {
 
             {captions ? (
               <div className="space-y-6">
-                {/* LinkedIn Post Copy */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black uppercase tracking-widest text-teal-600 dark:text-teal-400">Post LinkedIn Optimisé</label>
@@ -938,7 +1401,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* Instagram Caption */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black uppercase tracking-widest text-teal-600 dark:text-teal-400">Légende Instagram</label>
@@ -957,7 +1419,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* Hashtags */}
                 {captions.hashtags && captions.hashtags.length > 0 && (
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Hashtags Ciblés</label>

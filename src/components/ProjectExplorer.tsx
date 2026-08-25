@@ -8,9 +8,10 @@ interface ProjectExplorerProps {
   onSelect: (p: Project) => void;
   onDelete: (id: string) => void;
   onCreateNew: (type: 'flash' | 'architect') => void;
+  onOpenRepurposer?: () => void;
 }
 
-export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({ projects, onSelect, onDelete, onCreateNew }) => {
+export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({ projects, onSelect, onDelete, onCreateNew, onOpenRepurposer }) => {
   return (
     <div className="flex-1 min-h-screen p-10 md:p-20 flex flex-col overflow-y-auto bg-slate-50 text-slate-800">
       <header className="flex flex-col md:flex-row items-center justify-between mb-20 gap-8">
@@ -20,7 +21,12 @@ export const ProjectExplorer: React.FC<ProjectExplorerProps> = ({ projects, onSe
             <p className="text-slate-500 font-bold tracking-[0.3em] text-[10px] uppercase opacity-60">Architectural Content Engine v4.0</p>
           </div>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-3">
+          {onOpenRepurposer && (
+            <Button variant="glass" size="lg" onClick={onOpenRepurposer}>
+              <Cpu size={20} className="text-teal-600 dark:text-teal-400" /> Repurposer (URL / Doc)
+            </Button>
+          )}
           <Button variant="glass" size="lg" onClick={() => onCreateNew('flash')}>
             <Zap size={20} className="text-teal-600 dark:text-teal-400" /> Flash Create
           </Button>

@@ -204,6 +204,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["projectId", "updates"]
         }
+      },
+      {
+        name: "repurpose_content",
+        description: "Extract key insights from an external URL, YouTube video, or document and turn it into a carousel.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sourceType: { type: "string", enum: ["url", "youtube", "text", "pdf_base64"] },
+            sourceValue: { type: "string", description: "URL or text content to repurpose." },
+            slideCount: { type: "number", default: 6 },
+            targetAudience: { type: "string" },
+            tone: { type: "string", enum: ["educational", "storytelling", "provocative", "checklist", "framework"] }
+          },
+          required: ["sourceType", "sourceValue"]
+        }
+      },
+      {
+        name: "audit_viral_score",
+        description: "Analyze carousel hook, retention, rhythm, and generate viral score /100 with 3 alternative A/B/C hooks.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            slides: { type: "array", items: { type: "object" } }
+          },
+          required: ["title", "slides"]
+        }
+      },
+      {
+        name: "trigger_publishing_webhook",
+        description: "Dispatch carousel and captions to an external webhook (Make, Zapier, Buffer, n8n).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            webhookUrl: { type: "string" },
+            projectId: { type: "string" },
+            platform: { type: "string", default: "linkedin" }
+          },
+          required: ["webhookUrl", "projectId"]
+        }
       }
     ]
   };
@@ -467,6 +507,58 @@ ${spec ? `Adhere precisely to this Design DNA spec: ${JSON.stringify(spec)}` : "
       });
       return {
         content: [{ type: "text", text: response.text || "{}" }]
+      };
+    }
+
+    if (name === "audit_viral_score") {
+      const { title, slides = [] } = args as any;
+      const slideSummaries = slides.map((s: any, idx: number) => `Slide ${idx+1}: "${s.headline}" - "${s.body}"`).join("\n");
+      const prompt = `Evaluate viral potential of carousel: Title: "${title}". Slides:\n${slideSummaries}. Score /100 on hook, readability, retention, cta. Provide verdict, strengths, improvements, and 3 alternative hook variations (A/B/C) with {keywords} highlighted. Return strictly JSON.`;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json" }
+      });
+      return {
+        content: [{ type: "text", text: response.text || "{}" }]
+      };
+    }
+
+    if (name === "repurpose_content") {
+      const { sourceType, sourceValue, slideCount = 6, targetAudience, tone } = args as any;
+      const prompt = `Repurpose this ${sourceType} content into a 5-6 insight carousel summary topic for target audience "${targetAudience || 'B2B'}". Content: "${String(sourceValue).slice(0, 4000)}"`;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
+      });
+      return {
+        content: [{ type: "text", text: response.text || "Repurposed topic extracted." }]
+      };
+    }
+
+    if (name === "trigger_publishing_webhook") {
+      const { webhookUrl, projectId, platform = "linkedin" } = args as any;
+      const projects = loadProjects();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (!project) throw new Error(`Project ${projectId} not found`);
+
+      const payload = {
+        event: "carousel.ready_for_publishing",
+        timestamp: Date.now(),
+        platform,
+        project
+      };
+
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify({ success: res.ok, status: res.status, message: "Webhook triggered." }) }]
       };
     }
 
