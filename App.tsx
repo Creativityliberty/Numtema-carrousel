@@ -69,6 +69,7 @@ export default function App() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [currentPrompt, setCurrentPrompt] = useState('');
   const [selectedIntent, setSelectedIntent] = useState<CarouselIntent>('educational');
+  const [slideCount, setSlideCount] = useState(6);
   const [slideInstruction, setSlideInstruction] = useState('');
   const [isEditingSlide, setIsEditingSlide] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -200,8 +201,40 @@ export default function App() {
     setChatHistory([]);
     setCustomSpec(undefined);
     setArchitectImages([]);
+    setCurrentPrompt('');
     setIsArchitectFlow(type === 'architect');
     setIsAgentOpen(true);
+  };
+
+  const handleUploadArchitectImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const uri = event.target?.result as string;
+        if (uri) {
+          setArchitectImages(prev => [...prev, uri]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAnalyzeADN = async () => {
+    if (architectImages.length === 0) {
+      alert("Veuillez importer au moins 1 image de référence.");
+      return;
+    }
+    setGenState(p => ({ ...p, isAnalyzingDesign: true }));
+    try {
+      const spec = await analyzeDesignADN(architectImages);
+      setCustomSpec(spec);
+    } catch (e: any) {
+      alert("Erreur analyse ADN : " + (e?.message || e));
+    } finally {
+      setGenState(p => ({ ...p, isAnalyzingDesign: false }));
+    }
   };
 
   const handleCopyStyle = () => {
@@ -278,13 +311,13 @@ export default function App() {
     const history: ChatMessage[] = [...chatHistory, { role: 'user', text: currentPrompt }];
     setChatHistory(history);
     const topic = currentPrompt;
-    setCurrentPrompt('');
     setGenState(p => ({ ...p, isGeneratingContent: true }));
     
     try {
-      const config = await generateCarouselContent(topic, history, customSpec, 6, selectedIntent);
+      const config = await generateCarouselContent(topic, history, customSpec, slideCount, selectedIntent);
       saveProject(config, history);
       setIsAgentOpen(false);
+      setCurrentPrompt('');
     } catch (e: any) {
       const errMsg = e?.message || e?.toString() || "Unknown error.";
       setChatHistory(prev => [...prev, { role: 'model', text: `Erreur : ${errMsg}` }]);
@@ -393,7 +426,6 @@ export default function App() {
       const canvasWidth = 1080;
       const canvasHeight = isSquare ? 1080 : 1350;
 
-      // Capture all slide images first
       const slideImages: HTMLImageElement[] = [];
       const originalIdx = currentIdx;
 
@@ -414,7 +446,6 @@ export default function App() {
       }
       setCurrentIdx(originalIdx);
 
-      // Create offscreen video canvas
       const videoCanvas = document.createElement('canvas');
       videoCanvas.width = canvasWidth;
       videoCanvas.height = canvasHeight;
@@ -452,11 +483,9 @@ export default function App() {
 
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-          // Draw current slide image
           const currentImg = slideImages[currentSlideIdx];
           ctx.drawImage(currentImg, 0, 0, canvasWidth, canvasHeight);
 
-          // Draw transition to next slide if near the end of slide
           if (slideElapsed > slideDurationMs - transitionDurationMs && currentSlideIdx < totalSlides - 1) {
             const progress = (slideElapsed - (slideDurationMs - transitionDurationMs)) / transitionDurationMs;
             ctx.save();
@@ -466,7 +495,6 @@ export default function App() {
             ctx.restore();
           }
 
-          // Top progress bar
           const overallProgress = elapsed / totalDurationMs;
           ctx.fillStyle = currentProject.config.accentColor || "#80a880";
           ctx.fillRect(0, 0, canvasWidth * overallProgress, 14);
@@ -1135,6 +1163,157 @@ export default function App() {
         </div>
       )}
 
+      {/* ── Main Creation Modal (Flash Create & Design Architect) ── */}
+      {isAgentOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
+          <div className={`w-full max-w-2xl ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white border border-white/10'} rounded-3xl p-8 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto`}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b pb-4 border-slate-200 dark:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-500">
+                  {isArchitectFlow ? <Layers size={22} /> : <Zap size={22} />}
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-wider">
+                    {isArchitectFlow ? "Design Architect AI" : "Flash Create Carrousel"}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    {isArchitectFlow ? "Extrayez l'ADN graphique de vos références" : "Générez un carrousel optimisé en 5 secondes"}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAgentOpen(false)} 
+                className="p-2 text-slate-400 hover:text-white rounded-full transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              {/* If Design Architect Flow: Image References Upload */}
+              {isArchitectFlow && (
+                <div className="space-y-4 p-5 rounded-2xl border border-teal-500/20 bg-teal-500/5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-teal-600 dark:text-teal-400 flex items-center gap-1.5">
+                      <Camera size={14} /> 1. Importez vos captures de référence (1 à 5 images)
+                    </label>
+                    {customSpec && (
+                      <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 uppercase flex items-center gap-1">
+                        <CheckCircle2 size={11} /> ADN Extrait : {customSpec.fontFamily}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {architectImages.map((img, idx) => (
+                      <div key={idx} className="relative w-16 h-20 rounded-xl overflow-hidden border border-teal-500/30 group">
+                        <img src={img} alt={`Ref ${idx+1}`} className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setArchitectImages(prev => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded-md text-[8px] opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+
+                    <label className="w-16 h-20 rounded-xl border border-dashed border-teal-500/40 hover:border-teal-500 flex flex-col items-center justify-center gap-1 text-teal-500 hover:bg-teal-500/10 cursor-pointer transition-all">
+                      <Upload size={16} />
+                      <span className="text-[8px] font-bold">Ajouter</span>
+                      <input type="file" multiple accept="image/*" onChange={handleUploadArchitectImage} className="hidden" />
+                    </label>
+                  </div>
+
+                  {architectImages.length > 0 && !customSpec && (
+                    <button
+                      onClick={handleAnalyzeADN}
+                      disabled={genState.isAnalyzingDesign}
+                      className="w-full py-2.5 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                    >
+                      {genState.isAnalyzingDesign ? <><Loader2 className="animate-spin" size={14} /> Analyse visuelle en cours...</> : <><Sparkles size={14} /> Analyser le Design ADN</>}
+                    </button>
+                  )}
+
+                  {customSpec && (
+                    <div className="grid grid-cols-3 gap-2 pt-2 text-[10px] font-bold">
+                      <div className="p-2 rounded-lg bg-white/10">Police : <span className="text-teal-400">{customSpec.fontFamily}</span></div>
+                      <div className="p-2 rounded-lg bg-white/10 flex items-center gap-1">Couleur : <span className="w-3 h-3 rounded-full" style={{ backgroundColor: customSpec.accentColor }} /></div>
+                      <div className="p-2 rounded-lg bg-white/10">Vibe : <span className="text-slate-300 truncate block">{customSpec.vibe}</span></div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Subject / Topic Textarea */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  {isArchitectFlow ? "2. Quel sujet souhaitez-vous traiter avec ce design ?" : "Sujet ou idée de carrousel"}
+                </label>
+                <textarea
+                  rows={3}
+                  value={currentPrompt}
+                  onChange={e => setCurrentPrompt(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleGenerate())}
+                  placeholder="Ex: 5 erreurs qui font fuir les clients d'un site web, Les clés du Personal Branding en 2026..."
+                  className={`w-full p-4 rounded-2xl border text-xs font-bold outline-none transition-all ${
+                    isLight ? 'bg-slate-100 border-slate-200 text-slate-900 focus:border-teal-500' : 'bg-white/5 border-white/10 text-white focus:border-teal-500'
+                  }`}
+                />
+              </div>
+
+              {/* Options Grid (Intent + Slides Count) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Objectif éditorial</label>
+                  <select
+                    value={selectedIntent}
+                    onChange={e => setSelectedIntent(e.target.value as CarouselIntent)}
+                    className={`w-full p-3 rounded-xl border text-xs font-bold outline-none ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-white/5 border-white/10 text-white'
+                    }`}
+                  >
+                    <option value="educational">Éducatif (Guide étape par étape)</option>
+                    <option value="storytelling">Storytelling (Histoire & Leçons)</option>
+                    <option value="checklist">Checklist & Boîte à outils</option>
+                    <option value="promotion">Conversion & Lancement d'offre</option>
+                    <option value="trends">Tendances & Actualités</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre de slides</label>
+                  <select
+                    value={slideCount}
+                    onChange={e => setSlideCount(parseInt(e.target.value))}
+                    className={`w-full p-3 rounded-xl border text-xs font-bold outline-none ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-white/5 border-white/10 text-white'
+                    }`}
+                  >
+                    {[4, 5, 6, 7, 8, 10].map(num => (
+                      <option key={num} value={num}>{num} Diapositives</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Submit Action Button */}
+              <button
+                onClick={handleGenerate}
+                disabled={genState.isGeneratingContent || !currentPrompt.trim()}
+                className="w-full py-4 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {genState.isGeneratingContent ? (
+                  <><Loader2 className="animate-spin" size={16} /> Génération du carrousel et des slides...</>
+                ) : (
+                  <><Sparkles size={16} /> Générer le Carrousel</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Repurposer Modal */}
       {isRepurposeModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-6 animate-in fade-in">
@@ -1258,7 +1437,6 @@ export default function App() {
               </div>
             ) : viralAudit ? (
               <div className="space-y-6">
-                {/* Score Header */}
                 <div className="flex items-center justify-between p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">Potentiel Viral Global</span>
@@ -1269,7 +1447,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Breakdown bars */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { label: 'Hook (Titre)', score: viralAudit.breakdown?.hookStrength, max: 35 },
@@ -1287,7 +1464,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Alternative Hook Variations A/B/C */}
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-widest text-teal-600 dark:text-teal-400 flex items-center gap-1.5">
                     <Sparkles size={12} /> 3 Variantes de Titre Optimisées (A/B/C)

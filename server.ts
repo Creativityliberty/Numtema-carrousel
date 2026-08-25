@@ -503,6 +503,15 @@ if (process.env.DATABASE_URL) {
   console.log("[Numtema] Using local JSON DB:", PROJECTS_FILE);
 }
 
+let lastDbWarning = 0;
+function logDbWarning(msg: string, err: any) {
+  const now = Date.now();
+  if (now - lastDbWarning > 60000) {
+    console.warn(`[Numtema] PostgreSQL Notice: ${msg} (${err?.code || err?.message || err}). Local JSON storage is active and functioning.`);
+    lastDbWarning = now;
+  }
+}
+
 // Helper to save a single project in DB and local file
 async function persistProject(project: any) {
   if (pgPool) {
@@ -512,7 +521,7 @@ async function persistProject(project: any) {
         [project.id, JSON.stringify(project), project.updatedAt || Date.now()]
       );
     } catch (dbErr) {
-      console.warn("[Numtema] PostgreSQL persist warning:", dbErr);
+      logDbWarning("persist project", dbErr);
     }
   }
 
@@ -533,7 +542,7 @@ app.get("/api/projects", async (req, res) => {
         const result = await pgPool.query("SELECT data FROM numtema_projects ORDER BY updated_at DESC;");
         return res.json(result.rows.map(r => r.data));
       } catch (dbErr) {
-        console.warn("[Numtema] PostgreSQL query fallback to file:", dbErr);
+        logDbWarning("query projects", dbErr);
       }
     }
     const data = fs.readFileSync(PROJECTS_FILE, "utf-8");
